@@ -108,6 +108,29 @@ source .venv/bin/activate
 pip install -e .
 ```
 
+### Make `bountykit` Available Everywhere
+
+After installing, you have three options to run `bountykit`:
+
+**Option 1:** Activate the virtualenv each time (recommended for isolation):
+```bash
+cd bountykit
+source .venv/bin/activate
+bountykit --help
+```
+
+**Option 2:** Run directly with the full path:
+```bash
+./bountykit/.venv/bin/bountykit --help
+```
+
+**Option 3:** Add to your PATH permanently (most convenient):
+```bash
+echo 'export PATH="$HOME/path-to-bountykit/.venv/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+Replace `$HOME/path-to-bountykit` with the actual path to your bountykit directory.
+
 ### Setup External Tools
 
 ```bash
@@ -121,16 +144,16 @@ bountykit setup
 
 ```bash
 # 1. Check legal authorization
-bountykit legal check example.com --program-url "https://bugcrowd.com/example"
+bountykit legal -t example.com
 
 # 2. Run full reconnaissance
-bountykit recon full example.com -o ./results/recon
+bountykit recon full -t example.com -o ./results/recon
 
 # 3. Scan for vulnerabilities
-bountykit scan nuclei example.com -o ./results/scan
+bountykit scan nuclei -t example.com -o ./results/scan
 
 # 4. Search for CVEs
-bountykit cve search --keyword "apache" --min-score 7.0
+bountykit cve search -k "apache"
 
 # 5. Run automated pipeline
 bountykit pipeline -t example.com --scan-type full

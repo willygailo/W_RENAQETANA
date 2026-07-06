@@ -1,5 +1,6 @@
 {
     "powerquery.client.additionalSymbolsDirectories": [
-        "/home/willygailo/Documents/BOUNTY_CVE/.vscode/excel-pq-symbols"
+        "/home/willygailo/Documents/BOUNTY_CVE/.vscode/excel-pq-symbols",
+        "/home/willygailo/Documents/KATANA/.vscode/excel-pq-symbols"
     ]
 }
