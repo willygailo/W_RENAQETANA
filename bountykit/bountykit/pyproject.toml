@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bountykit"
+version = "0.1.0"
+description = "Advanced open-source legal CLI for bug bounty hunting and CVE research on Linux"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+keywords = ["bug-bounty", "cve", "security", "pentesting", "recon", "vulnerability"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Operating System :: POSIX :: Linux",
+]
+dependencies = [
+    "click>=8.1",
+    "rich>=13.0",
+    "pyyaml>=6.0",
+    "requests>=2.31",
+    "pydantic>=2.0",
+    "jinja2>=3.1",
+    "pydantic-settings>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.1",
+]
+
+[project.scripts]
+bountykit = "bountykit.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["bountykit*"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
