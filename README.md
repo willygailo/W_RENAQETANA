@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 <div align="center">
 
 # 🛡️ **BOUNTYKIT**
@@ -122,39 +121,23 @@ Recon → Scan → CVE → Cloud → Advanced → Report — everything you need
 ### 📦 **Install BountyKit**
 
 ```bash
-# 🔹 Clone the repository
 git clone https://github.com/willygailo/W_RENAQETANA.git
 cd W_RENAQETANA
-
-# 🔹 Create virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
-
-# 🔹 Install in development mode
 pip install -e .
 ```
 
 ### 🛠️ **Setup External Tools**
 
 ```bash
-# 🔹 Install all required external tools (subfinder, nuclei, sqlmap, etc.)
 bountykit setup
 ```
 
 ### 🔗 **Make `bountykit` Available Everywhere**
 
-After installing, you have three options to run `bountykit`:
-
-| Option | Command | Best For |
-|--------|---------|----------|
-| **1️⃣** | `source .venv/bin/activate && bountykit --help` | Isolation |
-| **2️⃣** | `./.venv/bin/bountykit --help` | Quick test |
-| **3️⃣** | `export PATH="$HOME/bountykit/.venv/bin:$PATH"` | Permanent |
-
-**Option 3 (Permanent):**
 ```bash
-# 🔹 Add to your PATH permanently
-echo 'export PATH="$HOME/bountykit/.venv/bin:$PATH"' >> ~/.zshrc
+echo 'export PATH="$HOME/W_RENAQETANA/.venv/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
@@ -167,22 +150,22 @@ source ~/.zshrc
 </div>
 
 ```bash
-# 🔹 1. Check legal authorization
+# Check legal authorization
 bountykit legal -t example.com
 
-# 🔹 2. Run full reconnaissance
-bountykit recon full -t example.com -o ./results/recon
+# Run full reconnaissance
+bountykit recon full -t example.com -o ./results
 
-# 🔹 3. Scan for vulnerabilities
-bountykit scan nuclei -t example.com -o ./results/scan
+# Scan for vulnerabilities with Nuclei
+bountykit scan nuclei -t example.com -s critical,high
 
-# 🔹 4. Search for CVEs
-bountykit cve search -k "apache"
+# Search for CVEs
+bountykit cve search -k "apache log4j"
 
-# 🔹 5. Run automated pipeline
+# Run automated pipeline
 bountykit pipeline -t example.com --scan-type full
 
-# 🔹 6. Generate report
+# Generate report
 bountykit report -i ./results -f markdown -o report.md
 ```
 
@@ -198,18 +181,18 @@ bountykit report -i ./results -f markdown -o report.md
 
 ```text
 bountykit
-├── 📋 recon                    🔍 Reconnaissance commands
+├── recon                    🔍 Reconnaissance commands
 │   ├── passive              Passive DNS (crt.sh, DoH, CT logs)
-│   ├── subdomains           Subdomain enumeration
+│   ├── subdomains           Subdomain enumeration via subfinder
 │   ├── active               Host probing (httpx/naabu/nmap)
-│   ├── js                   JavaScript analysis
-│   ├── endpoints            Endpoint discovery
+│   ├── js                   JavaScript analysis (secrets, DOM XSS)
+│   ├── endpoints            Endpoint discovery (Wayback, Arjun)
 │   ├── crawl                Deep crawling (Katana/Gospider)
 │   ├── iot                  IoT discovery (Shodan/Censys)
-│   ├── mobile               Mobile app recon
+│   ├── mobile               Mobile app recon (APK/IPA)
 │   └── full                 Full recon pipeline
 │
-├── 📋 scan                     🎯 Vulnerability scanning
+├── scan                     🎯 Vulnerability scanning
 │   ├── nuclei               Nuclei template scanner
 │   ├── sqli                 SQLMap wrapper
 │   ├── xss                  Dalfox XSS scanner
@@ -223,17 +206,17 @@ bountykit
 │   ├── waf                  WAF detection & bypass
 │   └── template             Nuclei template generator
 │
-├── 📋 cve                      🔐 CVE research
+├── cve                      🔐 CVE research
 │   ├── search               Search CVE databases
 │   ├── monitor              Monitor new CVEs
 │   ├── pocs                 Find PoC exploits
 │   ├── chain                CVE chain analysis
 │   └── patchdiff            Patch diff analysis
 │
-├── 📋 cloud                    ☁️ Cloud security
+├── cloud                    ☁️ Cloud security
 │   └── aws                  AWS misconfig testing
 │
-├── 📋 advanced                 🚀 2026 Advanced security (NEW)
+├── advanced                 🚀 Advanced security (2026)
 │   ├── llm                  LLM/AI security testing
 │   ├── supplychain          Supply chain security
 │   ├── race                 Race condition testing
@@ -241,10 +224,10 @@ bountykit
 │   ├── ssti                 SSTI detection (20+ engines)
 │   └── cloud                Multi-cloud security
 │
-├── 📋 pipeline                 🤖 Automated pipeline
-├── 📋 report                   📊 Report generation
-├── 📋 setup                    ⚙️  Tool installation
-└── 📋 legal                    ⚖️  Legal authorization
+├── pipeline                 🤖 Automated pipeline
+├── report                   📊 Report generation
+├── setup                    ⚙️  Tool installation
+└── legal                    ⚖️  Legal authorization
 ```
 
 ---
@@ -259,52 +242,59 @@ bountykit
 
 #### 📡 Passive DNS Enumeration
 ```bash
-# 🔹 Basic passive DNS scan
 bountykit recon passive -t example.com
-
-# 🔹 With custom output directory
-bountykit recon passive -t example.com -o ./results/recon
-
-# 🔹 Help
-bountykit recon passive --help
-```
-
-**Output:**
-```
-📡 Starting passive DNS on example.com
-  🔍 Querying CT logs...
-  ✓ Found 15 subdomains from CT logs
-  🔍 Querying DoH providers...
-  ✓ Found 12 subdomains via DoH
-  🧠 AI discovery found 50 potential subdomains
-  💾 Results saved to ./results/recon/example.com_passive_dns.json
+bountykit recon passive -t example.com -o ./results
 ```
 
 #### 🌐 Active Host Probing
 ```bash
-# 🔹 Probe live hosts
 bountykit recon active -t example.com
-
-# 🔹 Help
-bountykit recon active --help
+bountykit recon active -t example.com --full
 ```
 
 #### 🔗 Subdomain Enumeration
 ```bash
-# 🔹 Enumerate subdomains
 bountykit recon subdomains -t example.com
+bountykit recon subdomains -t example.com --brute
+```
 
-# 🔹 Help
-bountykit recon subdomains --help
+#### 📜 JavaScript Analysis
+```bash
+bountykit recon js -t example.com
+bountykit recon js -t example.com --all
+bountykit recon js -t example.com --secrets
+bountykit recon js -t example.com --endpoints
+bountykit recon js -t example.com --dom-xss
+```
+
+#### 🔗 Endpoint Discovery
+```bash
+bountykit recon endpoints -t example.com
+bountykit recon endpoints -t example.com -o ./results
+```
+
+#### 🕷️ Deep Crawling
+```bash
+bountykit recon crawl -t example.com
+bountykit recon crawl -t example.com -d 3
+bountykit recon crawl -t example.com --javascript
+```
+
+#### 📡 IoT Discovery
+```bash
+bountykit recon iot -t example.com
+```
+
+#### 📱 Mobile App Recon
+```bash
+bountykit recon mobile -t example.com
 ```
 
 #### 📜 Full Recon Pipeline
 ```bash
-# 🔹 Run all recon modules
-bountykit recon full -t example.com -o ./results/recon
-
-# 🔹 Help
-bountykit recon full --help
+bountykit recon full -t example.com -o ./results
+bountykit recon full -t example.com -o ./results --brute
+bountykit recon full -t example.com -o ./results --brute --full
 ```
 
 ---
@@ -313,119 +303,68 @@ bountykit recon full --help
 
 #### 🗄️ SQL Injection Testing
 ```bash
-# 🔹 Test with SQLMap
 bountykit scan sqli -u "https://example.com/page?id=1"
-
-# 🔹 Test specific parameter
 bountykit scan sqli -u "https://example.com/search?q=test" -p q
-
-# 🔹 With advanced techniques (time-based, union, error-based, WAF bypass)
 bountykit scan sqli -u "https://example.com/page?id=1" --techniques all
-
-# 🔹 Help
-bountykit scan sqli --help
+bountykit scan sqli -u "https://example.com/page?id=1" --dbs
 ```
 
 #### 🔥 XSS Testing
 ```bash
-# 🔹 Test with Dalfox
 bountykit scan xss -u "https://example.com/search?q=test" -p q
-
-# 🔹 With advanced techniques (DOM, mutation, CSP bypass)
 bountykit scan xss -u "https://example.com/search?q=test" --techniques all
-
-# 🔹 Help
-bountykit scan xss --help
+bountykit scan xss -u "https://example.com/search?q=test" --techniques dom
 ```
 
 #### 🌐 SSRF Testing
 ```bash
-# 🔹 Test for SSRF
-bountykit scan ssrf -t "https://example.com/fetch?url=http://example.com" -p url
-
-# 🔹 With 2026 techniques (DNS rebinding, IPv6 bypass, LLM-triggered)
-bountykit scan ssrf -t "https://example.com/fetch?url=test" --techniques all
-
-# 🔹 Help
-bountykit scan ssrf --help
+bountykit scan ssrf -t "https://example.com/fetch?url=http://test.com" -p url
+bountykit scan ssrf -t "https://example.com/fetch" --techniques all
+bountykit scan ssrf -t "https://example.com/fetch" --techniques dns_rebinding
 ```
 
 #### 🔌 API Security Testing
 ```bash
-# 🔹 Test OWASP API Top 10
 bountykit scan api -t https://api.example.com
-
-# 🔹 With AI/Agentic API tests
 bountykit scan api -t https://api.example.com --techniques all
-
-# 🔹 Help
-bountykit scan api --help
 ```
 
 #### 🛡️ Nuclei Template Scanning
 ```bash
-# 🔹 Scan with all templates
 bountykit scan nuclei -t example.com
-
-# 🔹 Scan with specific severity
-bountykit scan nuclei -t example.com --severity critical,high
-
-# 🔹 Help
-bountykit scan nuclei --help
+bountykit scan nuclei -t example.com -s critical,high
+bountykit scan nuclei -t example.com -r 150
+bountykit scan nuclei -t example.com --templates ./custom-templates
 ```
 
 #### 🔐 GraphQL Security Testing
 ```bash
-# 🔹 Test GraphQL endpoint
 bountykit scan graphql -t https://example.com/graphql
-
-# 🔹 Help
-bountykit scan graphql --help
 ```
 
 #### 🔑 OAuth/JWT Testing
 ```bash
-# 🔹 Test OAuth flow
 bountykit scan oauth -t https://example.com/auth/callback
-
-# 🔹 Help
-bountykit scan oauth --help
 ```
 
 #### 🔄 Deserialization Testing
 ```bash
-# 🔹 Test for deserialization
 bountykit scan deserialization -t https://example.com/api
-
-# 🔹 Help
-bountykit scan deserialization --help
 ```
 
 #### 🌍 Subdomain Takeover
 ```bash
-# 🔹 Check for takeover
 bountykit scan takeover -t example.com
-
-# 🔹 Help
-bountykit scan takeover --help
 ```
 
 #### 📋 Security Headers Audit
 ```bash
-# 🔹 Check security headers
 bountykit scan headers -t https://example.com
-
-# 🔹 Help
-bountykit scan headers --help
 ```
 
 #### 🛡️ WAF Detection & Bypass
 ```bash
-# 🔹 Detect WAF
 bountykit scan waf -t https://example.com
-
-# 🔹 Help
-bountykit scan waf --help
 ```
 
 ---
@@ -434,35 +373,31 @@ bountykit scan waf --help
 
 #### 🔍 Search CVEs
 ```bash
-# 🔹 Search by keyword
-bountykit cve search -k "apache"
-
-# 🔹 Search by CVE ID
+bountykit cve search -k "apache log4j"
 bountykit cve search -k "CVE-2024-1234"
-
-# 🔹 Search with exploit check
-bountykit cve search -k "log4j" --exploits
-
-# 🔹 Help
-bountykit cve search --help
+bountykit cve search -k "apache" -s CRITICAL
+bountykit cve search -k "log4j" -y 2024
+bountykit cve search --cpe "cpe:2.3:a:apache:log4j"
 ```
 
 #### 📡 Monitor CVEs
 ```bash
-# 🔹 Monitor new CVEs
 bountykit cve monitor -k "apache" --webhook https://hooks.slack.com/xxx
-
-# 🔹 Help
-bountykit cve monitor --help
 ```
 
 #### 💥 Find PoC Exploits
 ```bash
-# 🔹 Find PoCs for CVE
 bountykit cve pocs -k "CVE-2024-1234"
+```
 
-# 🔹 Help
-bountykit cve pocs --help
+#### 🔗 CVE Chain Analysis
+```bash
+bountykit cve chain -k "CVE-2024-1234"
+```
+
+#### 📋 Patch Diff Analysis
+```bash
+bountykit cve patchdiff -k "CVE-2024-1234"
 ```
 
 ---
@@ -471,20 +406,13 @@ bountykit cve pocs --help
 
 #### 🔶 AWS Security Testing
 ```bash
-# 🔹 Test AWS misconfigurations
-bountykit cloud aws -t https://example.com
-
-# 🔹 Help
-bountykit cloud aws --help
+bountykit cloud aws -b my-bucket
+bountykit cloud aws --metadata
 ```
 
 #### 🌐 Multi-Cloud Scanner
 ```bash
-# 🔹 Scan all clouds (AWS/GCP/Azure)
 bountykit advanced cloud -t https://example.com
-
-# 🔹 Help
-bountykit advanced cloud --help
 ```
 
 ---
@@ -493,17 +421,9 @@ bountykit advanced cloud --help
 
 #### 🤖 LLM/AI Security Testing
 ```bash
-# 🔹 Test LLM security
 bountykit advanced llm -t https://chat.example.com -m gpt-4
-
-# 🔹 Test specific attack
 bountykit advanced llm -t https://chat.example.com -a prompt_injection
-
-# 🔹 Test all attacks
 bountykit advanced llm -t https://chat.example.com -a all
-
-# 🔹 Help
-bountykit advanced llm --help
 ```
 
 **Attack Types:**
@@ -518,47 +438,49 @@ bountykit advanced llm --help
 
 #### 📦 Supply Chain Security
 ```bash
-# 🔹 Scan for malicious packages
-bountykit advanced supplychain -d ./project
-
-# 🔹 Check for typosquatting
-bountykit advanced supplychain -d ./project --typosquatting
-
-# 🔹 Help
-bountykit advanced supplychain --help
+bountykit advanced supplychain -t https://github.com/user/repo
+bountykit advanced supplychain -t https://github.com/user/repo -a typosquatting
+bountykit advanced supplychain -t https://github.com/user/repo -a all
 ```
+
+**Attack Types:**
+| Attack | Description |
+|--------|-------------|
+| `malicious_packages` | Scan for malicious dependencies |
+| `typosquatting` | Check for typosquatting packages |
+| `ci_cd` | CI/CD pipeline security |
+| `mcp_hijack` | MCP server hijack |
+| `skill_poisoning` | Agent skill poisoning |
+| `all` | Run all checks |
 
 #### ⏱️ Race Condition Testing
 ```bash
-# 🔹 Test race conditions
 bountykit advanced race -t https://api.example.com/checkout
-
-# 🔹 Help
-bountykit advanced race --help
+bountykit advanced race -t https://api.example.com/checkout --threads 20
 ```
 
 #### 🚢 HTTP Smuggling & Cache Poisoning
 ```bash
-# 🔹 Test HTTP smuggling
 bountykit advanced smuggle -t https://example.com
-
-# 🔹 Test cache poisoning
-bountykit advanced smuggle -t https://example.com --cache-poisoning
-
-# 🔹 Help
-bountykit advanced smuggle --help
+bountykit advanced smuggle -t https://example.com -a all
+bountykit advanced smuggle -t https://example.com -a cl_te
+bountykit advanced smuggle -t https://example.com -a cache_poison
 ```
+
+**Attack Types:**
+| Attack | Description |
+|--------|-------------|
+| `cl_te` | Content-Length / Transfer-Encoding |
+| `te_cl` | Transfer-Encoding / Content-Length |
+| `te_te` | Transfer-Encoding / Transfer-Encoding |
+| `cache_poison` | Web cache poisoning |
+| `host_injection` | Host header injection |
+| `all` | Run all attacks |
 
 #### 🎨 Server-Side Template Injection
 ```bash
-# 🔹 Test SSTI
-bountykit advanced ssti -t https://example.com/page?name=test
-
-# 🔹 Test specific engine
-bountykit advanced ssti -t https://example.com/page --engine jinja2
-
-# 🔹 Help
-bountykit advanced ssti --help
+bountykit advanced ssti -t "https://example.com/page?name=test"
+bountykit advanced ssti -t "https://example.com/page" -e jinja2
 ```
 
 **Supported Template Engines:**
@@ -586,23 +508,13 @@ bountykit advanced ssti --help
 
 #### 🔄 Automated Pipeline
 ```bash
-# 🔹 Run full pipeline
 bountykit pipeline -t example.com --scan-type full
-
-# 🔹 Run quick scan
 bountykit pipeline -t example.com --scan-type quick
-
-# 🔹 Run recon only
 bountykit pipeline -t example.com --scan-type recon
-
-# 🔹 Run scan only
 bountykit pipeline -t example.com --scan-type scan
-
-# 🔹 Run advanced scan
+bountykit pipeline -t example.com --scan-type cve
 bountykit pipeline -t example.com --scan-type advanced
-
-# 🔹 Help
-bountykit pipeline --help
+bountykit pipeline -t example.com --scan-type full --no-parallel
 ```
 
 **Pipeline Scan Types:**
@@ -617,14 +529,8 @@ bountykit pipeline --help
 
 #### 📊 Report Generation
 ```bash
-# 🔹 Generate markdown report
 bountykit report -i ./results -f markdown -o report.md
-
-# 🔹 Generate JSON report
 bountykit report -i ./results -f json -o report.json
-
-# 🔹 Help
-bountykit report --help
 ```
 
 ---
@@ -633,20 +539,13 @@ bountykit report --help
 
 #### 🛠️ Setup Tools
 ```bash
-# 🔹 Install all external tools
 bountykit setup
-
-# 🔹 Help
-bountykit setup --help
 ```
 
 #### ⚖️ Legal Authorization
 ```bash
-# 🔹 Check legal authorization
 bountykit legal -t example.com
-
-# 🔹 Help
-bountykit legal --help
+bountykit legal -t example.com -s ./scope.txt
 ```
 
 ---
