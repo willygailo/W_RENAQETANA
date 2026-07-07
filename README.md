@@ -265,9 +265,11 @@ bountykit cve search -k "apache log4j"
 bountykit pipeline -t example.com --scan-type full
 
 # ═══════════════════════════════════════
-# 6. Generate report
+# 6. Generate report (markdown, HTML, or JSON)
 # ═══════════════════════════════════════
 bountykit report -i ./results -f markdown -o report.md
+bountykit report -i ./results -f html -o report.html
+bountykit report -i ./results -f json -o report.json
 ```
 
 <br>
@@ -652,11 +654,21 @@ bountykit pipeline -t example.com --scan-type full --no-parallel
 <tr><td><code>advanced</code></td><td>2026 advanced techniques</td></tr>
 </table>
 
+> **Note:** Pipeline automatically generates `report.md`, `report.html`, and `report.json` in the output directory.
+
 #### 📊 Report Generation
 ```bash
 bountykit report -i ./results -f markdown -o report.md
+bountykit report -i ./results -f html -o report.html
 bountykit report -i ./results -f json -o report.json
 ```
+
+<table>
+<tr><th>Format</th><th>Description</th></tr>
+<tr><td><code>markdown</code></td><td>Markdown report with severity summary and findings detail</td></tr>
+<tr><td><code>html</code></td><td>Styled HTML report with color-coded severity cards and table</td></tr>
+<tr><td><code>json</code></td><td>Machine-readable JSON with full finding data</td></tr>
+</table>
 </details>
 
 <details>

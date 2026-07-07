@@ -625,13 +625,99 @@ def pipeline(ctx, target, output, scan_type, no_parallel):
 @main.command()
 @click.option("--input", "-i", "input_dir", required=True, help="Results directory")
 @click.option("--format", "-f", "fmt", default="markdown",
-              type=click.Choice(["markdown", "json"]), help="Output format")
+              type=click.Choice(["markdown", "json", "html"]), help="Output format")
 @click.option("--output", "-o", default=None, help="Output file path")
 @click.pass_context
 def report(ctx, input_dir, fmt, output):
     """Generate report from scan results."""
-    from bountykit.report.markdown import generate_report
-    generate_report(input_dir, fmt=fmt, output=output)
+    from bountykit.utils.report import generate_markdown_report, generate_html_report, generate_json_report
+
+    # Collect findings from results directory
+    findings = _collect_findings(input_dir)
+    target = _extract_target(input_dir)
+
+    output_path = output or f"./results/report.{fmt if fmt != 'markdown' else 'md'}"
+
+    if fmt == "html":
+        generate_html_report(target, findings, output_path=output_path)
+    elif fmt == "json":
+        generate_json_report(target, findings, output_path=output_path)
+    else:
+        generate_markdown_report(target, findings, output_path=output_path)
+
+
+def _collect_findings(input_dir: str) -> list:
+    """Collect findings from JSON result files in directory."""
+    import json
+    from pathlib import Path
+
+    findings = []
+    results_path = Path(input_dir)
+
+    if not results_path.exists():
+        return findings
+
+    for json_file in results_path.glob("**/*.json"):
+        try:
+            with open(json_file) as f:
+                data = json.load(f)
+
+            # Handle different result formats
+            if isinstance(data, dict):
+                # Direct findings list
+                if "findings" in data:
+                    for item in data["findings"]:
+                        if isinstance(item, dict):
+                            findings.append(_normalize_finding(item))
+                # Single finding
+                elif "severity" in data:
+                    findings.append(_normalize_finding(data))
+                # Nested results
+                elif "results" in data:
+                    for item in data["results"]:
+                        if isinstance(item, dict) and "severity" in item:
+                            findings.append(_normalize_finding(item))
+            elif isinstance(data, list):
+                for item in data:
+                    if isinstance(item, dict) and "severity" in item:
+                        findings.append(_normalize_finding(item))
+        except (json.JSONDecodeError, KeyError):
+            continue
+
+    return findings
+
+
+def _normalize_finding(item: dict) -> dict:
+    """Normalize a finding dict to standard format."""
+    return {
+        "severity": item.get("severity", item.get("level", "info")).lower(),
+        "title": item.get("title", item.get("name", item.get("type", "Finding"))),
+        "description": item.get("description", item.get("details", item.get("message", ""))),
+        "cwe": item.get("cwe", item.get("cwe_id", "")),
+        "url": item.get("url", item.get("endpoint", "")),
+        "source": item.get("source", item.get("tool", "")),
+        "fix": item.get("fix", item.get("remediation", item.get("solution", ""))),
+    }
+
+
+def _extract_target(input_dir: str) -> str:
+    """Extract target from pipeline results or directory name."""
+    import json
+    from pathlib import Path
+
+    results_path = Path(input_dir)
+
+    # Check pipeline_results.json
+    pipeline_file = results_path / "pipeline_results.json"
+    if pipeline_file.exists():
+        try:
+            with open(pipeline_file) as f:
+                data = json.load(f)
+            return data.get("target", results_path.name)
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    return results_path.name
 
 
 # =============================================================================

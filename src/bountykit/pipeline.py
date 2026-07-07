@@ -210,6 +210,9 @@ def _execute_phase(target: str, phase: dict, output_dir: str) -> dict:
         "tools_run": [],
     }
 
+    phase_output = Path(output_dir) / phase["name"]
+    phase_output.mkdir(parents=True, exist_ok=True)
+
     # Import and run tools dynamically
     try:
         from bountykit.recon import subdomain, passive, active
@@ -222,33 +225,34 @@ def _execute_phase(target: str, phase: dict, output_dir: str) -> dict:
         from bountykit.cloud import aws, multi_cloud
 
         tool_map = {
-            "subdomain": lambda: subdomain.enumerate_subdomains(target, output_dir),
-            "passive": lambda: passive.passive_dns(target, output_dir),
-            "active": lambda: active.probe_hosts([target], output_dir),
-            "endpoints": lambda: ep.discover_all_endpoints(target, output_dir),
-            "js_analysis": lambda: js_analysis.discover_js_files(target, output_dir),
-            "crawler": lambda: crawler.crawl_deep(target, output_dir=output_dir),
-            "web": lambda: web.run_nuclei(target, output_dir=output_dir),
-            "sqli": lambda: sqli.test_sqli(target, output_dir=output_dir),
-            "xss": lambda: xss.test_xss(target, output_dir=output_dir),
-            "ssrf": lambda: ssrf.test_ssrf(target, output_dir),
-            "api": lambda: api.test_api(target, output_dir=output_dir),
-            "deserialization": lambda: deserialization.scan_all_deserialization(target, output_dir),
-            "graphql": lambda: graphql.scan_graphql(target, output_dir),
-            "oauth": lambda: oauth.test_redirect_uri(target, output_dir),
-            "takeover": lambda: takeover.scan_takeover(target, output_dir),
-            "headers": lambda: headers.analyze_headers(target, output_dir),
-            "waf": lambda: waf.detect_waf(target, output_dir),
-            "ssti": lambda: asyncio.run(ssti.SSTITester(target, output_dir=output_dir).test_all()),
-            "smuggle": lambda: asyncio.run(smuggling.HTTPSmugglingTester(target, output_dir=output_dir).test_all()),
-            "race_condition": lambda: asyncio.run(race_condition.RaceConditionTester(target, output_dir=output_dir).test_all()),
-            "llm": lambda: asyncio.run(llm.LLMTester(target, output_dir=output_dir).test_all()),
-            "supply_chain": lambda: asyncio.run(supply_chain.SupplyChainScanner(target, output_dir=output_dir).scan_project()),
-            "aws": lambda: aws.test_aws(target, output_dir=output_dir),
-            "multi_cloud": lambda: asyncio.run(multi_cloud.MultiCloudScanner(target, output_dir=output_dir).scan_all()),
-            "search": lambda: search.search_cve(keyword=target),
+            "subdomain": lambda: subdomain.enumerate_subdomains(target, str(phase_output)),
+            "passive": lambda: passive.passive_dns(target, str(phase_output)),
+            "active": lambda: active.probe_hosts([target], str(phase_output)),
+            "endpoints": lambda: ep.discover_all_endpoints(target, str(phase_output)),
+            "js_analysis": lambda: js_analysis.discover_js_files(target, str(phase_output)),
+            "crawler": lambda: crawler.crawl_deep(target, output_dir=str(phase_output)),
+            "web": lambda: web.run_nuclei(target, output_dir=str(phase_output)),
+            "sqli": lambda: sqli.test_sqli(target, output_dir=str(phase_output)),
+            "xss": lambda: xss.test_xss(target, output_dir=str(phase_output)),
+            "ssrf": lambda: ssrf.test_ssrf(target, str(phase_output)),
+            "api": lambda: api.test_api(target, output_dir=str(phase_output)),
+            "deserialization": lambda: deserialization.scan_all_deserialization(target, str(phase_output)),
+            "graphql": lambda: graphql.scan_graphql(target, str(phase_output)),
+            "oauth": lambda: oauth.test_redirect_uri(target, str(phase_output)),
+            "takeover": lambda: takeover.scan_takeover(target, str(phase_output)),
+            "headers": lambda: headers.analyze_headers(target, str(phase_output)),
+            "waf": lambda: waf.detect_waf(target, str(phase_output)),
+            "ssti": lambda: asyncio.run(ssti.SSTITester(target, output_dir=str(phase_output)).test_all()),
+            "smuggle": lambda: asyncio.run(smuggling.HTTPSmugglingTester(target, output_dir=str(phase_output)).test_all()),
+            "race_condition": lambda: asyncio.run(race_condition.RaceConditionTester(target, output_dir=str(phase_output)).test_all()),
+            "llm": lambda: asyncio.run(llm.LLMTester(target, output_dir=str(phase_output)).test_all()),
+            "supply_chain": lambda: asyncio.run(supply_chain.SupplyChainScanner(target, output_dir=str(phase_output)).scan_project()),
+            "aws": lambda: aws.test_aws(target, output_dir=str(phase_output)),
+            "multi_cloud": lambda: asyncio.run(multi_cloud.MultiCloudScanner(target, output_dir=str(phase_output)).scan_all()),
+            "search": lambda: _run_cve_search(target, str(phase_output)),
             "monitor": lambda: {"status": "monitoring_configured"},
-            "markdown": lambda: {"status": "report_generated"},
+            "markdown": lambda: _generate_reports(target, output_dir),
+            "report": lambda: _generate_reports(target, output_dir),
         }
 
         for tool_name in phase.get("tools", []):
@@ -297,6 +301,113 @@ def _format_summary(results: dict) -> str:
             lines.append(f"  ✗ {phase_name}: failed")
 
     return "\n".join(lines)
+
+
+def _generate_reports(target: str, output_dir: str) -> dict:
+    """Generate markdown, HTML, and JSON reports from findings.
+
+    Args:
+        target: Target that was scanned
+        output_dir: Directory containing result files
+
+    Returns:
+        Report generation status
+    """
+    from bountykit.utils.report import (
+        generate_markdown_report,
+        generate_html_report,
+        generate_json_report,
+    )
+
+    findings = []
+    results_path = Path(output_dir)
+
+    # Collect findings from all JSON result files (including subdirectories)
+    for json_file in results_path.rglob("*.json"):
+        if json_file.name == "pipeline_results.json":
+            continue
+        try:
+            with open(json_file) as f:
+                data = json.load(f)
+            findings.extend(_extract_findings(data))
+        except (json.JSONDecodeError, KeyError):
+            continue
+
+    # Generate reports in all formats
+    if findings:
+        generate_markdown_report(target, findings, output_path=f"{output_dir}/report.md")
+        generate_html_report(target, findings, output_path=f"{output_dir}/report.html")
+        generate_json_report(target, findings, output_path=f"{output_dir}/report.json")
+        return {"status": "reports_generated", "findings": len(findings), "formats": ["md", "html", "json"]}
+
+    return {"status": "no_findings", "findings": 0}
+
+
+def _extract_findings(data: dict) -> list:
+    """Extract findings from various result formats."""
+    findings = []
+    if isinstance(data, dict):
+        if "findings" in data:
+            for item in data["findings"]:
+                if isinstance(item, dict):
+                    findings.append(_normalize_finding(item))
+        elif "severity" in data:
+            findings.append(_normalize_finding(data))
+        elif "results" in data:
+            for item in data["results"]:
+                if isinstance(item, dict) and "severity" in item:
+                    findings.append(_normalize_finding(item))
+    elif isinstance(data, list):
+        for item in data:
+            if isinstance(item, dict) and "severity" in item:
+                findings.append(_normalize_finding(item))
+    return findings
+
+
+def _normalize_finding(item: dict) -> dict:
+    """Normalize a finding dict to standard format."""
+    return {
+        "severity": item.get("severity", item.get("level", "info")).lower(),
+        "title": item.get("title", item.get("name", item.get("type", "Finding"))),
+        "description": item.get("description", item.get("details", item.get("message", ""))),
+        "cwe": item.get("cwe", item.get("cwe_id", "")),
+        "url": item.get("url", item.get("endpoint", "")),
+        "source": item.get("source", item.get("tool", "")),
+        "fix": item.get("fix", item.get("remediation", item.get("solution", ""))),
+    }
+
+
+def _run_cve_search(target: str, output_dir: str) -> dict:
+    """Run CVE search and save results to file."""
+    from bountykit.cve import search
+
+    result = search.search_cve(keyword=target)
+
+    # Convert findings to dict format and save
+    findings = []
+    for f in result.findings:
+        findings.append({
+            "cve_id": f.cve_id,
+            "severity": f.severity,
+            "description": f.description,
+            "published": f.published,
+            "cvss_score": f.cvss_score,
+            "epss_score": f.epss_score,
+            "known_exploited": f.known_exploited,
+            "exploit_available": f.exploit_available,
+            "references": f.references,
+        })
+
+    output_file = Path(output_dir) / "cve_results.json"
+    with open(output_file, "w") as f:
+        json.dump({
+            "target": target,
+            "keyword": target,
+            "findings": findings,
+            "sources_queried": result.sources_queried,
+        }, f, indent=2, default=str)
+
+    return {"status": "success", "findings": len(findings), "file": str(output_file)}
 
 
 def run_quick_scan(target: str, output_dir: str = "./results") -> dict:
