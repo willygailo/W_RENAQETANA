@@ -29,6 +29,7 @@ Thumbs.db
 # BountyKit output
 output/
 results/
+results/recon/
 reports/
 
 # Reference docs (not for repo)
