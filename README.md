@@ -1,128 +1,210 @@
 <div align="center">
 
+<br>
+
+```
+██████   ██████  ██    ██ ███    ██ ████████ ██    ██ ██   ██ ██ ████████
+██   ██ ██    ██ ██    ██ ████   ██    ██    ██    ██ ██  ██  ██    ██
+██████  ██    ██ ██    ██ ██ ██  ██    ██    ██    ██ █████   ██    ██
+██   ██ ██    ██ ██    ██ ██  ██ ██    ██    ██    ██ ██  ██  ██    ██
+██████   ██████   ██████  ██   ████    ██     ██████  ██   ██ ██    ██
+```
+
+<br>
+
 # 🛡️ **BOUNTYKIT**
 
-### *Advanced Open-Source Legal CLI for Bug Bounty & CVE Research — 2026 Edition*
+## **Advanced Bug Bounty & CVE Research CLI — 2026 Edition**
 
----
+<br>
 
-![Version](https://img.shields.io/badge/version-0.2.0-blue?style=for-the-badge)
-![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)
-![License](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)
-![Platform](https://img.shields.io/badge/platform-Linux-000000?style=for-the-badge&logo=linux&logoColor=white)
-![Status](https://img.shields.io/badge/status-active-brightgreen?style=for-the-badge)
-![Modules](https://img.shields.io/badge/modules-30+-orange?style=for-the-badge)
+[![Version](https://img.shields.io/badge/version-0.2.0-1e1e2e?style=for-the-badge&labelColor=45475a)](https://github.com/willygailo/W_RENAQETANA)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-cba6f7?style=for-the-badge&logo=python&logoColor=white&labelColor=45475a)]()
+[![License](https://img.shields.io/badge/license-MIT-a6e3a1?style=for-the-badge&labelColor=45475a)]()
+[![Platform](https://img.shields.io/badge/Linux-f2cdcd?style=for-the-badge&logo=linux&logoColor=black&labelColor=45475a)]()
+[![Status](https://img.shields.io/badge/Active-a6e3a1?style=for-the-badge&labelColor=45475a)]()
+[![Modules](https://img.shields.io/badge/30%2B%20Modules-fab387?style=for-the-badge&labelColor=45475a)]()
 
----
+<br>
 
-**One CLI to rule them all.** 🗡️
+**Recon · Scan · CVE · Cloud · Advanced · Report**
 
-Recon → Scan → CVE → Cloud → Advanced → Report — everything you need for authorized security research, unified in a single, powerful command-line tool.
+**One CLI to rule them all.**
 
----
+[Install](#-installation) • [Quick Start](#-quick-start) • [Commands](#-commands-reference) • [Examples](#-usage-examples)
+
+<br>
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
 
 </div>
 
+<br>
+
 ## 📑 **TABLE OF CONTENTS**
+
+<table>
+<tr>
+<td width="50%">
 
 - [📖 About](#-about)
 - [✨ Features](#-features)
 - [🚀 Installation](#-installation)
 - [🎮 Quick Start](#-quick-start)
+
+</td>
+<td width="50%">
+
 - [📋 Commands Reference](#-commands-reference)
 - [💡 Usage Examples](#-usage-examples)
 - [⚖️ Disclaimer](#️-disclaimer)
 - [👤 Author](#-author)
 
----
+</td>
+</tr>
+</table>
+
+<br>
 
 <div align="center">
 
 ## 📖 **ABOUT**
 
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
 </div>
 
-**BountyKit** is a comprehensive, open-source CLI tool built for Linux-based bug bounty hunters and CVE researchers. It brings together **30+ modules** covering every phase of a security engagement — from passive reconnaissance to vulnerability scanning, CVE research, cloud security, and advanced 2026 attack vectors.
+<br>
 
-> ⚠️ **BountyKit is built for authorized security research only.** Always obtain written permission before testing any target.
+**BountyKit** is a comprehensive, open-source CLI tool built for Linux-based bug bounty hunters and CVE researchers. It unifies **30+ modules** covering every phase of a security engagement — from passive reconnaissance to vulnerability scanning, CVE research, cloud security, and advanced 2026 attack vectors — all through a single, powerful command-line interface.
 
----
+> **⚠️ BountyKit is built for authorized security research only.** Always obtain written permission before testing any target.
+
+<br>
+
+<div align="center">
+
+### **What You Can Do**
+
+`passive` **·** `active` **·** `subdomains` **·** `js` **·** `endpoints` **·** `crawl` **·** `iot` **·** `mobile`
+
+`nuclei` **·** `sqli` **·** `xss` **·** `ssrf` **·** `api` **·** `graphql` **·** `oauth`
+
+`cve search` **·** `cve monitor` **·** `cve pocs` **·** `chain` **·** `patchdiff`
+
+`aws` **·** `cloud` **·** `llm` **·** `supplychain` **·** `race` **·** `smuggle` **·** `ssti`
+
+</div>
+
+<br>
 
 <div align="center">
 
 ## ✨ **FEATURES**
 
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
 </div>
 
+<br>
+
 ### 🔍 **Reconnaissance**
-| Module | Description | Status |
-|--------|-------------|--------|
-| `passive` | Passive DNS enumeration via crt.sh, DoH, CT logs | ✅ 2026 |
-| `subdomains` | Subdomain discovery with Subfinder + DNS brute-force | ✅ |
-| `active` | Host probing with HTTP/2 fingerprinting & tech detection | ✅ 2026 |
-| `js` | JavaScript file analysis — secrets, DOM XSS, endpoints | ✅ |
-| `endpoints` | Endpoint discovery — Waybackurls, Arjun, ParamSpider | ✅ |
-| `crawl` | Deep crawling — Katana + Gospider | ✅ |
-| `iot` | IoT/infrastructure discovery — Shodan, Censys | ✅ |
-| `mobile` | Mobile app recon — APK/IPA analysis | ✅ |
+
+<table>
+<tr><th width="140">Module</th><th>Description</th><th width="80">Status</th></tr>
+<tr><td><code>passive</code></td><td>Passive DNS enumeration via crt.sh, DoH, CT logs</td><td align="center">✅ 2026</td></tr>
+<tr><td><code>subdomains</code></td><td>Subdomain discovery with Subfinder + DNS brute-force</td><td align="center">✅</td></tr>
+<tr><td><code>active</code></td><td>Host probing with HTTP/2 fingerprinting & tech detection</td><td align="center">✅ 2026</td></tr>
+<tr><td><code>js</code></td><td>JavaScript file analysis — secrets, DOM XSS, endpoints</td><td align="center">✅</td></tr>
+<tr><td><code>endpoints</code></td><td>Endpoint discovery — Waybackurls, Arjun, ParamSpider</td><td align="center">✅</td></tr>
+<tr><td><code>crawl</code></td><td>Deep crawling — Katana + Gospider</td><td align="center">✅</td></tr>
+<tr><td><code>iot</code></td><td>IoT/infrastructure discovery — Shodan, Censys</td><td align="center">✅</td></tr>
+<tr><td><code>mobile</code></td><td>Mobile app recon — APK/IPA analysis</td><td align="center">✅</td></tr>
+</table>
 
 ### 🎯 **Vulnerability Scanning**
-| Module | Description | Status |
-|--------|-------------|--------|
-| `nuclei` | Nuclei template-based scanning | ✅ |
-| `sqli` | SQLMap wrapper with WAF bypass techniques | ✅ 2026 |
-| `xss` | Dalfox XSS + DOM XSS, mutation XSS, CSP bypass | ✅ 2026 |
-| `ssrf` | SSRF testing with DNS rebinding & IPv6 bypass | ✅ 2026 |
-| `api` | OWASP API 2026 Top 10 with AI/Agentic API tests | ✅ 2026 |
-| `graphql` | GraphQL introspection, batching, DoS | ✅ |
-| `oauth` | OAuth redirect manipulation & JWT analysis | ✅ |
-| `deserialization` | Java/PHP/.NET deserialization detection | ✅ |
-| `takeover` | Subdomain takeover — 50+ service fingerprints | ✅ |
-| `headers` | Security headers, cookies, CSP audit | ✅ |
-| `waf` | WAF detection & bypass testing | ✅ |
+
+<table>
+<tr><th width="140">Module</th><th>Description</th><th width="80">Status</th></tr>
+<tr><td><code>nuclei</code></td><td>Nuclei template-based scanning</td><td align="center">✅</td></tr>
+<tr><td><code>sqli</code></td><td>SQLMap wrapper with WAF bypass techniques</td><td align="center">✅ 2026</td></tr>
+<tr><td><code>xss</code></td><td>Dalfox XSS + DOM XSS, mutation XSS, CSP bypass</td><td align="center">✅ 2026</td></tr>
+<tr><td><code>ssrf</code></td><td>SSRF testing with DNS rebinding & IPv6 bypass</td><td align="center">✅ 2026</td></tr>
+<tr><td><code>api</code></td><td>OWASP API Top 10 with AI/Agentic API tests</td><td align="center">✅ 2026</td></tr>
+<tr><td><code>graphql</code></td><td>GraphQL introspection, batching, DoS</td><td align="center">✅</td></tr>
+<tr><td><code>oauth</code></td><td>OAuth redirect manipulation & JWT analysis</td><td align="center">✅</td></tr>
+<tr><td><code>deserialization</code></td><td>Java/PHP/.NET deserialization detection</td><td align="center">✅</td></tr>
+<tr><td><code>takeover</code></td><td>Subdomain takeover — 50+ service fingerprints</td><td align="center">✅</td></tr>
+<tr><td><code>headers</code></td><td>Security headers, cookies, CSP audit</td><td align="center">✅</td></tr>
+<tr><td><code>waf</code></td><td>WAF detection & bypass testing</td><td align="center">✅</td></tr>
+</table>
 
 ### 🔐 **CVE Research**
-| Module | Description | Status |
-|--------|-------------|--------|
-| `search` | NVD API CVE search with exploit intelligence | ✅ 2026 |
-| `monitor` | CVE monitoring with webhook notifications | ✅ |
-| `pocs` | PoC exploit finder (GitHub + Nuclei) | ✅ |
-| `chain` | CVE chain analysis & attack paths | ✅ |
-| `patchdiff` | Git diff & commit security analysis | ✅ |
+
+<table>
+<tr><th width="140">Module</th><th>Description</th><th width="80">Status</th></tr>
+<tr><td><code>search</code></td><td>NVD API CVE search with exploit intelligence</td><td align="center">✅ 2026</td></tr>
+<tr><td><code>monitor</code></td><td>CVE monitoring with webhook notifications</td><td align="center">✅</td></tr>
+<tr><td><code>pocs</code></td><td>PoC exploit finder (GitHub + Nuclei)</td><td align="center">✅</td></tr>
+<tr><td><code>chain</code></td><td>CVE chain analysis & attack paths</td><td align="center">✅</td></tr>
+<tr><td><code>patchdiff</code></td><td>Git diff & commit security analysis</td><td align="center">✅</td></tr>
+</table>
 
 ### ☁️ **Cloud Security**
-| Module | Description | Status |
-|--------|-------------|--------|
-| `aws` | AWS metadata SSRF, S3 bucket enumeration | ✅ |
-| `cloud` | AWS misconfig testing | ✅ |
 
-### 🚀 **2026 Advanced Security** *(NEW)*
-| Module | Description | Status |
-|--------|-------------|--------|
-| `llm` | LLM/AI security testing (prompt injection, SSRF via LLM, skill poisoning) | ✅ 2026 |
-| `supplychain` | Supply chain security (TrapDoor campaign, typosquatting, MCP hijack) | ✅ 2026 |
-| `race` | Race condition & business logic testing (double-spend, price manipulation) | ✅ 2026 |
-| `smuggle` | HTTP smuggling & cache poisoning (CL.TE, TE.CL, web cache poisoning) | ✅ 2026 |
-| `ssti` | Server-Side Template Injection (20+ engines: Jinja2, Twig, Freemarker, etc.) | ✅ 2026 |
+<table>
+<tr><th width="140">Module</th><th>Description</th><th width="80">Status</th></tr>
+<tr><td><code>aws</code></td><td>AWS metadata SSRF, S3 bucket enumeration</td><td align="center">✅</td></tr>
+<tr><td><code>cloud</code></td><td>Multi-cloud misconfig testing (AWS/GCP/Azure)</td><td align="center">✅</td></tr>
+</table>
 
----
+### 🚀 **2026 Advanced Security**
+
+<table>
+<tr><th width="140">Module</th><th>Description</th><th width="80">Status</th></tr>
+<tr><td><code>llm</code></td><td>LLM/AI security testing (prompt injection, SSRF via LLM, skill poisoning)</td><td align="center">✅ 2026</td></tr>
+<tr><td><code>supplychain</code></td><td>Supply chain security (TrapDoor, typosquatting, MCP hijack)</td><td align="center">✅ 2026</td></tr>
+<tr><td><code>race</code></td><td>Race condition & business logic testing</td><td align="center">✅ 2026</td></tr>
+<tr><td><code>smuggle</code></td><td>HTTP smuggling & cache poisoning</td><td align="center">✅ 2026</td></tr>
+<tr><td><code>ssti</code></td><td>SSTI detection (20+ engines: Jinja2, Twig, Freemarker, etc.)</td><td align="center">✅ 2026</td></tr>
+</table>
+
+<br>
 
 <div align="center">
 
 ## 🚀 **INSTALLATION**
 
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
 </div>
 
+<br>
+
 ### 📋 **Prerequisites**
-- 🐧 Linux (Kali, Ubuntu, Debian, etc.)
-- 🐍 Python 3.10+
-- 🔧 Go 1.21+
+
+| Requirement | Version |
+|-------------|---------|
+| 🐧 **Linux** | Kali, Ubuntu, Debian |
+| 🐍 **Python** | 3.10+ |
+| 🔧 **Go** | 1.21+ |
 
 ### 📦 **Install BountyKit**
 
 ```bash
+# Clone the repository
 git clone https://github.com/willygailo/W_RENAQETANA.git
 cd W_RENAQETANA
+
+# Create virtual environment & install
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
@@ -131,57 +213,81 @@ pip install -e .
 ### 🛠️ **Setup External Tools**
 
 ```bash
+# Install all required external tools (subfinder, nuclei, sqlmap, etc.)
 bountykit setup
 ```
 
-### 🔗 **Make `bountykit` Available Everywhere**
+### 🔗 **Make Available Everywhere**
 
 ```bash
 echo 'export PATH="$HOME/W_RENAQETANA/.venv/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
----
+<br>
 
 <div align="center">
 
 ## 🎮 **QUICK START**
 
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
 </div>
 
+<br>
+
 ```bash
-# Check legal authorization
+# ═══════════════════════════════════════
+# 1. Check legal authorization
+# ═══════════════════════════════════════
 bountykit legal -t example.com
 
-# Run full reconnaissance
+# ═══════════════════════════════════════
+# 2. Full reconnaissance
+# ═══════════════════════════════════════
 bountykit recon full -t example.com -o ./results
 
-# Scan for vulnerabilities with Nuclei
+# ═══════════════════════════════════════
+# 3. Vulnerability scanning
+# ═══════════════════════════════════════
 bountykit scan nuclei -t example.com -s critical,high
 
-# Search for CVEs
+# ═══════════════════════════════════════
+# 4. CVE search
+# ═══════════════════════════════════════
 bountykit cve search -k "apache log4j"
 
-# Run automated pipeline
+# ═══════════════════════════════════════
+# 5. Automated pipeline
+# ═══════════════════════════════════════
 bountykit pipeline -t example.com --scan-type full
 
-# Generate report
+# ═══════════════════════════════════════
+# 6. Generate report
+# ═══════════════════════════════════════
 bountykit report -i ./results -f markdown -o report.md
 ```
 
----
+<br>
 
 <div align="center">
 
 ## 📋 **COMMANDS REFERENCE**
 
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
 </div>
 
-### 📊 **Main Commands Overview**
+<br>
 
-```text
+```
 bountykit
-├── recon                    🔍 Reconnaissance commands
+│
+├── 🔍 recon                    Reconnaissance
 │   ├── passive              Passive DNS (crt.sh, DoH, CT logs)
 │   ├── subdomains           Subdomain enumeration via subfinder
 │   ├── active               Host probing (httpx/naabu/nmap)
@@ -192,7 +298,7 @@ bountykit
 │   ├── mobile               Mobile app recon (APK/IPA)
 │   └── full                 Full recon pipeline
 │
-├── scan                     🎯 Vulnerability scanning
+├── 🎯 scan                     Vulnerability Scanning
 │   ├── nuclei               Nuclei template scanner
 │   ├── sqli                 SQLMap wrapper
 │   ├── xss                  Dalfox XSS scanner
@@ -206,17 +312,17 @@ bountykit
 │   ├── waf                  WAF detection & bypass
 │   └── template             Nuclei template generator
 │
-├── cve                      🔐 CVE research
+├── 🔐 cve                      CVE Research
 │   ├── search               Search CVE databases
 │   ├── monitor              Monitor new CVEs
 │   ├── pocs                 Find PoC exploits
 │   ├── chain                CVE chain analysis
 │   └── patchdiff            Patch diff analysis
 │
-├── cloud                    ☁️ Cloud security
+├── ☁️ cloud                    Cloud Security
 │   └── aws                  AWS misconfig testing
 │
-├── advanced                 🚀 Advanced security (2026)
+├── 🚀 advanced                 Advanced (2026)
 │   ├── llm                  LLM/AI security testing
 │   ├── supplychain          Supply chain security
 │   ├── race                 Race condition testing
@@ -224,21 +330,29 @@ bountykit
 │   ├── ssti                 SSTI detection (20+ engines)
 │   └── cloud                Multi-cloud security
 │
-├── pipeline                 🤖 Automated pipeline
-├── report                   📊 Report generation
-├── setup                    ⚙️  Tool installation
-└── legal                    ⚖️  Legal authorization
+├── 🤖 pipeline                 Automated Pipeline
+├── 📊 report                   Report Generation
+├── ⚙️  setup                    Tool Installation
+└── ⚖️  legal                    Legal Authorization
 ```
 
----
+<br>
 
 <div align="center">
 
 ## 💡 **USAGE EXAMPLES**
 
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
 </div>
 
-### 🔍 **Reconnaissance Commands**
+<br>
+
+<details>
+<summary><strong>🔍 Reconnaissance Commands</strong> — Click to expand</summary>
+<br>
 
 #### 📡 Passive DNS Enumeration
 ```bash
@@ -296,10 +410,11 @@ bountykit recon full -t example.com -o ./results
 bountykit recon full -t example.com -o ./results --brute
 bountykit recon full -t example.com -o ./results --brute --full
 ```
+</details>
 
----
-
-### 🎯 **Scanning Commands**
+<details>
+<summary><strong>🎯 Scanning Commands</strong> — Click to expand</summary>
+<br>
 
 #### 🗄️ SQL Injection Testing
 ```bash
@@ -366,10 +481,11 @@ bountykit scan headers -t https://example.com
 ```bash
 bountykit scan waf -t https://example.com
 ```
+</details>
 
----
-
-### 🔐 **CVE Research Commands**
+<details>
+<summary><strong>🔐 CVE Research Commands</strong> — Click to expand</summary>
+<br>
 
 #### 🔍 Search CVEs
 ```bash
@@ -399,10 +515,11 @@ bountykit cve chain -k "CVE-2024-1234"
 ```bash
 bountykit cve patchdiff -k "CVE-2024-1234"
 ```
+</details>
 
----
-
-### ☁️ **Cloud Security Commands**
+<details>
+<summary><strong>☁️ Cloud Security Commands</strong> — Click to expand</summary>
+<br>
 
 #### 🔶 AWS Security Testing
 ```bash
@@ -414,10 +531,11 @@ bountykit cloud aws --metadata
 ```bash
 bountykit advanced cloud -t https://example.com
 ```
+</details>
 
----
-
-### 🚀 **2026 Advanced Commands** *(NEW)*
+<details>
+<summary><strong>🚀 Advanced 2026 Commands</strong> — Click to expand</summary>
+<br>
 
 #### 🤖 LLM/AI Security Testing
 ```bash
@@ -426,15 +544,15 @@ bountykit advanced llm -t https://chat.example.com -a prompt_injection
 bountykit advanced llm -t https://chat.example.com -a all
 ```
 
-**Attack Types:**
-| Attack | Description |
-|--------|-------------|
-| `prompt_injection` | Direct and indirect prompt injection |
-| `ssrf_via_llm` | SSRF through LLM tool calling |
-| `tool_hijack` | Tool calling hijack exploitation |
-| `model_extraction` | Model extraction attempts |
-| `skill_poisoning` | Agent skill file poisoning |
-| `all` | Run all attacks |
+<table>
+<tr><th>Attack</th><th>Description</th></tr>
+<tr><td><code>prompt_injection</code></td><td>Direct and indirect prompt injection</td></tr>
+<tr><td><code>ssrf_via_llm</code></td><td>SSRF through LLM tool calling</td></tr>
+<tr><td><code>tool_hijack</code></td><td>Tool calling hijack exploitation</td></tr>
+<tr><td><code>model_extraction</code></td><td>Model extraction attempts</td></tr>
+<tr><td><code>skill_poisoning</code></td><td>Agent skill file poisoning</td></tr>
+<tr><td><code>all</code></td><td>Run all attacks</td></tr>
+</table>
 
 #### 📦 Supply Chain Security
 ```bash
@@ -443,15 +561,15 @@ bountykit advanced supplychain -t https://github.com/user/repo -a typosquatting
 bountykit advanced supplychain -t https://github.com/user/repo -a all
 ```
 
-**Attack Types:**
-| Attack | Description |
-|--------|-------------|
-| `malicious_packages` | Scan for malicious dependencies |
-| `typosquatting` | Check for typosquatting packages |
-| `ci_cd` | CI/CD pipeline security |
-| `mcp_hijack` | MCP server hijack |
-| `skill_poisoning` | Agent skill poisoning |
-| `all` | Run all checks |
+<table>
+<tr><th>Attack</th><th>Description</th></tr>
+<tr><td><code>malicious_packages</code></td><td>Scan for malicious dependencies</td></tr>
+<tr><td><code>typosquatting</code></td><td>Check for typosquatting packages</td></tr>
+<tr><td><code>ci_cd</code></td><td>CI/CD pipeline security</td></tr>
+<tr><td><code>mcp_hijack</code></td><td>MCP server hijack</td></tr>
+<tr><td><code>skill_poisoning</code></td><td>Agent skill poisoning</td></tr>
+<tr><td><code>all</code></td><td>Run all checks</td></tr>
+</table>
 
 #### ⏱️ Race Condition Testing
 ```bash
@@ -467,15 +585,15 @@ bountykit advanced smuggle -t https://example.com -a cl_te
 bountykit advanced smuggle -t https://example.com -a cache_poison
 ```
 
-**Attack Types:**
-| Attack | Description |
-|--------|-------------|
-| `cl_te` | Content-Length / Transfer-Encoding |
-| `te_cl` | Transfer-Encoding / Content-Length |
-| `te_te` | Transfer-Encoding / Transfer-Encoding |
-| `cache_poison` | Web cache poisoning |
-| `host_injection` | Host header injection |
-| `all` | Run all attacks |
+<table>
+<tr><th>Attack</th><th>Description</th></tr>
+<tr><td><code>cl_te</code></td><td>Content-Length / Transfer-Encoding</td></tr>
+<tr><td><code>te_cl</code></td><td>Transfer-Encoding / Content-Length</td></tr>
+<tr><td><code>te_te</code></td><td>Transfer-Encoding / Transfer-Encoding</td></tr>
+<tr><td><code>cache_poison</code></td><td>Web cache poisoning</td></tr>
+<tr><td><code>host_injection</code></td><td>Host header injection</td></tr>
+<tr><td><code>all</code></td><td>Run all attacks</td></tr>
+</table>
 
 #### 🎨 Server-Side Template Injection
 ```bash
@@ -483,28 +601,29 @@ bountykit advanced ssti -t "https://example.com/page?name=test"
 bountykit advanced ssti -t "https://example.com/page" -e jinja2
 ```
 
-**Supported Template Engines:**
-| Engine | Language |
-|--------|----------|
-| Jinja2 | Python |
-| Twig | PHP |
-| Freemarker | Java |
-| Velocity | Java |
-| Mako | Python |
-| Pug | Node.js |
-| EJS | Node.js |
-| Handlebars | Node.js |
-| Nunjucks | Node.js |
-| ERB | Ruby |
-| JSP | Java |
-| Thymeleaf | Java |
-| MVEL | Java |
-| SpEL | Java |
-| OGNL | Java |
+<table>
+<tr><th>Engine</th><th>Language</th></tr>
+<tr><td>Jinja2</td><td>Python</td></tr>
+<tr><td>Twig</td><td>PHP</td></tr>
+<tr><td>Freemarker</td><td>Java</td></tr>
+<tr><td>Velocity</td><td>Java</td></tr>
+<tr><td>Mako</td><td>Python</td></tr>
+<tr><td>Pug</td><td>Node.js</td></tr>
+<tr><td>EJS</td><td>Node.js</td></tr>
+<tr><td>Handlebars</td><td>Node.js</td></tr>
+<tr><td>Nunjucks</td><td>Node.js</td></tr>
+<tr><td>ERB</td><td>Ruby</td></tr>
+<tr><td>JSP</td><td>Java</td></tr>
+<tr><td>Thymeleaf</td><td>Java</td></tr>
+<tr><td>MVEL</td><td>Java</td></tr>
+<tr><td>SpEL</td><td>Java</td></tr>
+<tr><td>OGNL</td><td>Java</td></tr>
+</table>
+</details>
 
----
-
-### 🤖 **Pipeline & Report Commands**
+<details>
+<summary><strong>🤖 Pipeline & Report Commands</strong> — Click to expand</summary>
+<br>
 
 #### 🔄 Automated Pipeline
 ```bash
@@ -517,25 +636,26 @@ bountykit pipeline -t example.com --scan-type advanced
 bountykit pipeline -t example.com --scan-type full --no-parallel
 ```
 
-**Pipeline Scan Types:**
-| Type | Description |
-|------|-------------|
-| `full` | Complete scan (recon + scan + CVE) |
-| `quick` | Quick scan (essential checks only) |
-| `recon` | Reconnaissance only |
-| `scan` | Vulnerability scanning only |
-| `cve` | CVE research only |
-| `advanced` | 2026 advanced techniques |
+<table>
+<tr><th>Type</th><th>Description</th></tr>
+<tr><td><code>full</code></td><td>Complete scan (recon + scan + CVE)</td></tr>
+<tr><td><code>quick</code></td><td>Quick scan (essential checks only)</td></tr>
+<tr><td><code>recon</code></td><td>Reconnaissance only</td></tr>
+<tr><td><code>scan</code></td><td>Vulnerability scanning only</td></tr>
+<tr><td><code>cve</code></td><td>CVE research only</td></tr>
+<tr><td><code>advanced</code></td><td>2026 advanced techniques</td></tr>
+</table>
 
 #### 📊 Report Generation
 ```bash
 bountykit report -i ./results -f markdown -o report.md
 bountykit report -i ./results -f json -o report.json
 ```
+</details>
 
----
-
-### ⚙️ **Setup & Legal Commands**
+<details>
+<summary><strong>⚙️ Setup & Legal Commands</strong> — Click to expand</summary>
+<br>
 
 #### 🛠️ Setup Tools
 ```bash
@@ -547,26 +667,34 @@ bountykit setup
 bountykit legal -t example.com
 bountykit legal -t example.com -s ./scope.txt
 ```
+</details>
 
----
+<br>
 
 ### 📊 **Global Options**
 
-| Option | Description |
-|--------|-------------|
-| `--version` | Show version |
-| `-c, --config PATH` | Path to config file |
-| `-v, --verbose` | Enable verbose output |
-| `-q, --quiet` | Suppress non-essential output |
-| `--help` | Show help message |
+<table>
+<tr><th>Option</th><th>Description</th></tr>
+<tr><td><code>--version</code></td><td>Show version</td></tr>
+<tr><td><code>-c, --config PATH</code></td><td>Path to config file</td></tr>
+<tr><td><code>-v, --verbose</code></td><td>Enable verbose output</td></tr>
+<tr><td><code>-q, --quiet</code></td><td>Suppress non-essential output</td></tr>
+<tr><td><code>--help</code></td><td>Show help message</td></tr>
+</table>
 
----
+<br>
 
 <div align="center">
 
 ## ⚠️ **DISCLAIMER**
 
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
 </div>
+
+<br>
 
 > **🚨 IMPORTANT — READ BEFORE USE**
 
@@ -574,56 +702,73 @@ This tool is provided **"as is"** for **authorized security research and educati
 
 By using **BountyKit**, you agree to the following:
 
-| # | Rule |
-|---|------|
-| 1️⃣ | **🔍 Authorization Required** — You must have **explicit written permission** from the target system owner before running any scans or tests. |
-| 2️⃣ | **📋 Bug Bounty Programs Only** — Only test targets that are explicitly listed in official bug bounty programs or under a signed penetration testing agreement. |
-| 3️⃣ | **🚫 No Illegal Use** — This tool must **never** be used for unauthorized access, data theft, disruption, or any illegal activity. |
-| 4️⃣ | **🛡️ Non-Destructive by Design** — All payloads are non-destructive (read-only). The tool will not modify, delete, or corrupt any data. |
-| 5️⃣ | **📜 Compliance** — You are responsible for complying with all applicable local, national, and international laws and regulations. |
-| 6️⃣ | **⚖️ No Liability** — The author assumes **no liability** for misuse of this tool. Use at your own risk and only against systems you are authorized to test. |
+<table>
+<tr><th width="40">#</th><th>Rule</th></tr>
+<tr><td align="center">1️⃣</td><td><strong>🔍 Authorization Required</strong> — You must have <strong>explicit written permission</strong> from the target system owner before running any scans or tests.</td></tr>
+<tr><td align="center">2️⃣</td><td><strong>📋 Bug Bounty Programs Only</strong> — Only test targets listed in official bug bounty programs or under a signed pentesting agreement.</td></tr>
+<tr><td align="center">3️⃣</td><td><strong>🚫 No Illegal Use</strong> — Never use for unauthorized access, data theft, disruption, or any illegal activity.</td></tr>
+<tr><td align="center">4️⃣</td><td><strong>🛡️ Non-Destructive by Design</strong> — All payloads are read-only. The tool will not modify, delete, or corrupt any data.</td></tr>
+<tr><td align="center">5️⃣</td><td><strong>📜 Compliance</strong> — You are responsible for complying with all applicable laws and regulations.</td></tr>
+<tr><td align="center">6️⃣</td><td><strong>⚖️ No Liability</strong> — The author assumes <strong>no liability</strong> for misuse. Use at your own risk.</td></tr>
+</table>
 
 **If you do not agree to these terms, do not use this tool.**
 
----
+<br>
 
 <div align="center">
 
 ## 👤 **AUTHOR**
 
-</div>
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+<br>
 
 ### **Willy Gailo**
 
-<div align="center">
+<br>
 
 [![Facebook](https://img.shields.io/badge/Facebook-1877F2?style=for-the-badge&logo=facebook&logoColor=white)](https://www.facebook.com/willygailo)
 [![GitHub](https://img.shields.io/badge/GitHub-100000?style=for-the-badge&logo=github&logoColor=white)](https://github.com/willygailo)
 
-</div>
+<br>
 
----
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
 
-<div align="center">
+<br>
 
-## 🙏 **THANK YOU**
+### 🙏 **Thank You**
 
-Thank you for using **BountyKit**! 🎉
-
-If you found this tool helpful, consider giving it a ⭐ on GitHub — it means a lot!
+If you found this tool helpful, consider giving it a ⭐ on GitHub!
 
 ### 🤝 **Contributions Welcome**
 
-Feel free to open issues, submit pull requests, or suggest new features. Every contribution helps make this tool better for the security community.
+Feel free to open issues, submit pull requests, or suggest new features.
 
----
+<br>
 
 **🛡️ Stay Legal. Stay Ethical. Hunt Responsibly. 🛡️**
 
 Made with ❤️ by [Willy Gailo](https://github.com/willygailo)
 
----
+<br>
 
 *© 2026 BountyKit. MIT License.*
 
 </div>
+
+<br>
+
+<p align="center">
+  <sub>
+    <code>██████   ██████  ██    ██ ███    ██ ████████ ██    ██ ██   ██ ██ ████████</code><br>
+    <code>██   ██ ██    ██ ██    ██ ████   ██    ██    ██    ██ ██  ██  ██    ██</code><br>
+    <code>██████  ██    ██ ██    ██ ██ ██  ██    ██    ██    ██ █████   ██    ██</code><br>
+    <code>██   ██ ██    ██ ██    ██ ██  ██ ██    ██    ██    ██ ██  ██  ██    ██</code><br>
+    <code>██████   ██████   ██████  ██   ████    ██     ██████  ██   ██ ██    ██</code>
+  </sub>
+</p>
