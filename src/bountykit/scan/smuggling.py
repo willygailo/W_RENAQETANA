@@ -8,10 +8,13 @@ web cache poisoning, cache deception, header injection, host header attacks.
 from __future__ import annotations
 
 import re
+import json
 import time
 import hashlib
+import asyncio
+from pathlib import Path
+from dataclasses import dataclass, field, asdict
 from typing import Optional, List, Dict, Any, Tuple
-from dataclasses import dataclass, field
 from urllib.parse import urlparse, urljoin
 
 import httpx
@@ -250,34 +253,62 @@ class HTTPSmugglingTester:
         logger.info(f"[*] Starting HTTP smuggling & cache poisoning tests: {self.target}")
 
         host = urlparse(self.target).hostname or "localhost"
+        
+        sem = asyncio.Semaphore(15)
+
+        async def bounded_smuggle(ep, payload_def, host):
+            async with sem:
+                return await self._test_smuggling(ep, payload_def, host)
 
         # Phase 1: HTTP request smuggling
+        tasks = []
         for ep in self.TEST_ENDPOINTS:
             for payload_def in self.SMUGGLING_PAYLOADS:
-                finding = await self._test_smuggling(ep, payload_def, host)
-                if finding:
-                    result.findings.append(finding)
+                tasks.append(bounded_smuggle(ep, payload_def, host))
             result.endpoints_tested += 1
+            
+        smuggle_results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in smuggle_results:
+            if r and not isinstance(r, Exception):
+                result.findings.append(r)
+
+        async def bounded_cache_poison(ep, header, value):
+            async with sem:
+                return await self._test_cache_poisoning(ep, header, value)
 
         # Phase 2: Web cache poisoning
+        poison_tasks = []
         for ep in self.TEST_ENDPOINTS:
             for header, values in self.CACHE_HEADERS.items():
                 for value in values:
-                    finding = await self._test_cache_poisoning(ep, header, value)
-                    if finding:
-                        result.findings.append(finding)
+                    poison_tasks.append(bounded_cache_poison(ep, header, value))
+                    
+        poison_results = await asyncio.gather(*poison_tasks, return_exceptions=True)
+        for r in poison_results:
+            if r and not isinstance(r, Exception):
+                result.findings.append(r)
+
+        async def bounded_cache_deception(payload_def):
+            async with sem:
+                return await self._test_cache_deception(payload_def)
 
         # Phase 3: Cache deception
-        for payload_def in self.CACHE_DECEPTION_PAYLOADS:
-            finding = await self._test_cache_deception(payload_def)
-            if finding:
-                result.findings.append(finding)
+        deception_tasks = [bounded_cache_deception(p) for p in self.CACHE_DECEPTION_PAYLOADS]
+        deception_results = await asyncio.gather(*deception_tasks, return_exceptions=True)
+        for r in deception_results:
+            if r and not isinstance(r, Exception):
+                result.findings.append(r)
+
+        async def bounded_host_header(ep):
+            async with sem:
+                return await self._test_host_header(ep)
 
         # Phase 4: Host header attacks
-        for ep in ["/", "/api", "/login"]:
-            finding = await self._test_host_header(ep)
-            if finding:
-                result.findings.append(finding)
+        host_tasks = [bounded_host_header(ep) for ep in ["/", "/api", "/login"]]
+        host_results = await asyncio.gather(*host_tasks, return_exceptions=True)
+        for r in host_results:
+            if r and not isinstance(r, Exception):
+                result.findings.append(r)
 
         # Phase 5: Request splitting
         finding = await self._test_request_splitting()
@@ -288,6 +319,23 @@ class HTTPSmugglingTester:
             f"[+] Smuggling & cache poisoning tests complete: {len(result.findings)} findings"
         )
         return result
+
+    def _save_results(self, result: "SmugglingResult", output_dir: str) -> str:
+        """Persist smuggling results to <output_dir>/smuggling_<host>.json."""
+        host = urlparse(self.target).hostname or self.target.replace("://", "_")
+        out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        filepath = out / f"smuggling_{host}.json"
+        payload = {
+            "target": result.target,
+            "timestamp": result.timestamp,
+            "endpoints_tested": result.endpoints_tested,
+            "summary": result.summary,
+            "findings": [asdict(f) for f in result.findings],
+        }
+        filepath.write_text(json.dumps(payload, indent=2, default=str))
+        logger.info(f"[+] Results saved → {filepath}")
+        return str(filepath)
 
     @tenacity.retry(stop=tenacity.stop_after_attempt(2), wait=tenacity.wait_fixed(1))
     async def _test_smuggling(

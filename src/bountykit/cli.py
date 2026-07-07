@@ -5,6 +5,7 @@ import sys
 import click
 from rich.console import Console
 from rich.panel import Panel
+from rich.table import Table
 
 from bountykit import __version__
 from bountykit.config import Config
@@ -520,7 +521,18 @@ def advanced_llm(ctx, target, model, attack, output):
     _legal_check(ctx.obj["config"], target)
     console.print(f"\n[bold cyan]LLM/AI Security Testing: {target}[/bold cyan]\n")
     tester = LLMTester(target)
-    asyncio.run(tester.test_all())
+    result = asyncio.run(tester.test_all())
+    saved = tester._save_results(result, output)
+    table = Table(title="LLM/AI Security Findings", show_lines=True)
+    table.add_column("Severity", style="bold red", width=10)
+    table.add_column("Category", style="cyan", width=20)
+    table.add_column("Title", style="white")
+    for f in result.findings:
+        color = {"critical": "red", "high": "bright_red", "medium": "yellow", "low": "green"}.get(f.severity, "white")
+        table.add_row(f"[{color}]{f.severity.upper()}[/{color}]", f.category, f.title)
+    if result.findings:
+        console.print(table)
+    console.print(f"\n[green]✓ {len(result.findings)} findings → {saved}[/green]\n")
 
 
 @advanced.command("supplychain")
@@ -536,7 +548,18 @@ def advanced_supplychain(ctx, target, attack, output):
     _legal_check(ctx.obj["config"], target)
     console.print(f"\n[bold cyan]Supply Chain Security: {target}[/bold cyan]\n")
     scanner = SupplyChainScanner(target_path=target)
-    asyncio.run(scanner.scan_project())
+    result = asyncio.run(scanner.scan_project())
+    saved = scanner._save_results(result, output)
+    table = Table(title="Supply Chain Findings", show_lines=True)
+    table.add_column("Severity", style="bold red", width=10)
+    table.add_column("Category", style="cyan", width=20)
+    table.add_column("Title", style="white")
+    for f in result.findings:
+        color = {"critical": "red", "high": "bright_red", "medium": "yellow", "low": "green"}.get(f.severity, "white")
+        table.add_row(f"[{color}]{f.severity.upper()}[/{color}]", f.category, f.title)
+    if result.findings:
+        console.print(table)
+    console.print(f"\n[green]✓ {len(result.findings)} findings → {saved}[/green]\n")
 
 
 @advanced.command("race")
@@ -551,7 +574,18 @@ def advanced_race(ctx, target, param, threads, output):
     _legal_check(ctx.obj["config"], target)
     console.print(f"\n[bold cyan]Race Condition Testing: {target}[/bold cyan]\n")
     tester = RaceConditionTester(target, max_concurrent=threads)
-    asyncio.run(tester.test_all())
+    result = asyncio.run(tester.test_all())
+    saved = tester._save_results(result, output)
+    table = Table(title="Race Condition Findings", show_lines=True)
+    table.add_column("Severity", style="bold red", width=10)
+    table.add_column("Category", style="cyan", width=20)
+    table.add_column("Title", style="white")
+    for f in result.findings:
+        color = {"critical": "red", "high": "bright_red", "medium": "yellow", "low": "green"}.get(f.severity, "white")
+        table.add_row(f"[{color}]{f.severity.upper()}[/{color}]", f.category, f.title)
+    if result.findings:
+        console.print(table)
+    console.print(f"\n[green]✓ {len(result.findings)} findings → {saved}[/green]\n")
 
 
 @advanced.command("smuggle")
@@ -567,7 +601,18 @@ def advanced_smuggle(ctx, target, attack, output):
     _legal_check(ctx.obj["config"], target)
     console.print(f"\n[bold cyan]HTTP Smuggling & Cache Poisoning: {target}[/bold cyan]\n")
     tester = HTTPSmugglingTester(target)
-    asyncio.run(tester.test_all())
+    result = asyncio.run(tester.test_all())
+    saved = tester._save_results(result, output)
+    table = Table(title="Smuggling / Cache Poisoning Findings", show_lines=True)
+    table.add_column("Severity", style="bold red", width=10)
+    table.add_column("Category", style="cyan", width=20)
+    table.add_column("Title", style="white")
+    for f in result.findings:
+        color = {"critical": "red", "high": "bright_red", "medium": "yellow", "low": "green"}.get(f.severity, "white")
+        table.add_row(f"[{color}]{f.severity.upper()}[/{color}]", f.category, f.title)
+    if result.findings:
+        console.print(table)
+    console.print(f"\n[green]✓ {len(result.findings)} findings → {saved}[/green]\n")
 
 
 @advanced.command("ssti")
@@ -581,7 +626,18 @@ def advanced_ssti(ctx, target, engine, output):
     _legal_check(ctx.obj["config"], target)
     console.print(f"\n[bold cyan]SSTI Detection: {target}[/bold cyan]\n")
     tester = SSTITester(target)
-    asyncio.run(tester.test_all())
+    result = asyncio.run(tester.test_all())
+    saved = tester._save_results(result, output)
+    table = Table(title="SSTI Findings", show_lines=True)
+    table.add_column("Severity", style="bold red", width=10)
+    table.add_column("Engine", style="cyan", width=15)
+    table.add_column("Title", style="white")
+    for f in result.findings:
+        color = {"critical": "red", "high": "bright_red", "medium": "yellow", "low": "green"}.get(f.severity, "white")
+        table.add_row(f"[{color}]{f.severity.upper()}[/{color}]", f.template_engine, f.title)
+    if result.findings:
+        console.print(table)
+    console.print(f"\n[green]✓ {len(result.findings)} findings → {saved}[/green]\n")
 
 
 @advanced.command("cloud")

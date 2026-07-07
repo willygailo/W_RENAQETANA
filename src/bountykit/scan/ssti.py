@@ -9,9 +9,13 @@ Angular (server-side), React (server-side), Vue (server-side).
 from __future__ import annotations
 
 import re
+import json
 import time
+import asyncio
+from pathlib import Path
+from dataclasses import dataclass, field, asdict
 from typing import Optional, List, Dict, Any, Set
-from dataclasses import dataclass, field
+from urllib.parse import urlparse
 
 import httpx
 import tenacity
@@ -244,13 +248,24 @@ class SSTITester:
 
         logger.info(f"[*] Starting SSTI testing: {self.target}")
 
+        sem = asyncio.Semaphore(15)
+
+        async def bounded_detect(endpoint, engine_name, engine_config):
+            async with sem:
+                return await self._test_ssti_detection(endpoint, engine_name, engine_config)
+
         # Phase 1: Detection
+        tasks = []
         for endpoint in INJECTION_POINTS:
             for engine_name, engine_config in TEMPLATE_ENGINES.items():
-                finding = await self._test_ssti_detection(endpoint, engine_name, engine_config)
-                if finding:
-                    result.findings.append(finding)
-            result.endpoints_tested += 1
+                tasks.append(bounded_detect(endpoint, engine_name, engine_config))
+        
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            if r and not isinstance(r, Exception):
+                result.findings.append(r)
+        
+        result.endpoints_tested += len(INJECTION_POINTS)
 
         # Phase 2: RCE confirmation (if detection found)
         rce_engines = set()
@@ -284,17 +299,39 @@ class SSTITester:
                     if finding:
                         result.findings.append(finding)
 
+        async def bounded_blind(endpoint):
+            async with sem:
+                return await self._test_blind_ssti(endpoint)
+
         # Phase 5: Blind SSTI detection
-        for endpoint in INJECTION_POINTS[:5]:
-            finding = await self._test_blind_ssti(endpoint)
-            if finding:
-                result.findings.append(finding)
+        blind_tasks = [bounded_blind(ep) for ep in INJECTION_POINTS[:5]]
+        blind_results = await asyncio.gather(*blind_tasks, return_exceptions=True)
+        for r in blind_results:
+            if r and not isinstance(r, Exception):
+                result.findings.append(r)
 
         logger.info(
             f"[+] SSTI testing complete: {len(result.findings)} findings "
             f"across {result.endpoints_tested} endpoints"
         )
         return result
+
+    def _save_results(self, result: "SSTIResult", output_dir: str) -> str:
+        """Persist SSTI results to <output_dir>/ssti_<host>.json."""
+        host = urlparse(self.target).hostname or self.target.replace("://", "_")
+        out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        filepath = out / f"ssti_{host}.json"
+        payload = {
+            "target": result.target,
+            "timestamp": result.timestamp,
+            "endpoints_tested": result.endpoints_tested,
+            "summary": result.summary,
+            "findings": [asdict(f) for f in result.findings],
+        }
+        filepath.write_text(json.dumps(payload, indent=2, default=str))
+        logger.info(f"[+] Results saved → {filepath}")
+        return str(filepath)
 
     @tenacity.retry(stop=tenacity.stop_after_attempt(2), wait=tenacity.wait_fixed(1))
     async def _test_ssti_detection(

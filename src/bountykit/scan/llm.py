@@ -12,8 +12,9 @@ import json
 import time
 import hashlib
 import random
+from pathlib import Path
+from dataclasses import dataclass, field, asdict
 from typing import Optional, List, Dict, Any, Set
-from dataclasses import dataclass, field
 
 import httpx
 import tenacity
@@ -330,6 +331,30 @@ class LLMTester:
             f"across {result.endpoints_tested} endpoints"
         )
         return result
+
+    def _save_results(self, result: "LLMResult", output_dir: str) -> str:
+        """Serialize and persist the scan result to <output_dir>/llm_<host>.json."""
+        from urllib.parse import urlparse
+        host = urlparse(self.target).hostname or self.target.replace("://", "_")
+        out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        filepath = out / f"llm_{host}.json"
+
+        def _finding_to_dict(f):
+            d = asdict(f)
+            return d
+
+        payload = {
+            "target": result.target,
+            "timestamp": result.timestamp,
+            "endpoints_tested": result.endpoints_tested,
+            "injection_techniques": result.injection_techniques,
+            "summary": result.summary,
+            "findings": [_finding_to_dict(f) for f in result.findings],
+        }
+        filepath.write_text(json.dumps(payload, indent=2, default=str))
+        logger.info(f"[+] Results saved → {filepath}")
+        return str(filepath)
 
     async def _discover_endpoints(self) -> List[str]:
         """Discover active LLM endpoints."""

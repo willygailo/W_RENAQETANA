@@ -13,7 +13,7 @@ import json
 import time
 import hashlib
 from typing import Optional, List, Dict, Any, Set
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
 import httpx
@@ -235,6 +235,24 @@ class SupplyChainScanner:
             f"across {result.files_scanned} files"
         )
         return result
+
+    def _save_results(self, result: "SupplyChainResult", output_dir: str) -> str:
+        """Persist supply chain results to <output_dir>/supply_chain_<target>.json."""
+        safe_name = str(self.target_path).replace("/", "_").strip("_")
+        out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        filepath = out / f"supply_chain_{safe_name[-40:]}.json"
+        payload = {
+            "target": result.target,
+            "timestamp": result.timestamp,
+            "files_scanned": result.files_scanned,
+            "packages_checked": result.packages_checked,
+            "summary": result.summary,
+            "findings": [asdict(f) for f in result.findings],
+        }
+        filepath.write_text(json.dumps(payload, indent=2, default=str))
+        logger.info(f"[+] Results saved → {filepath}")
+        return str(filepath)
 
     async def _scan_package_json(
         self, pkg_file: Path, result: SupplyChainResult

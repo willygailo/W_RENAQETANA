@@ -11,8 +11,9 @@ import asyncio
 import re
 import time
 import json
+from pathlib import Path
+from dataclasses import dataclass, field, asdict
 from typing import Optional, List, Dict, Any, Callable, Awaitable
-from dataclasses import dataclass, field
 
 import httpx
 import tenacity
@@ -255,6 +256,24 @@ class RaceConditionTester:
             f"across {result.endpoints_tested} endpoints"
         )
         return result
+
+    def _save_results(self, result: "RaceConditionResult", output_dir: str) -> str:
+        """Persist race condition results to <output_dir>/race_<host>.json."""
+        from urllib.parse import urlparse
+        host = urlparse(self.target).hostname or self.target.replace("://", "_")
+        out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        filepath = out / f"race_{host}.json"
+        payload = {
+            "target": result.target,
+            "timestamp": result.timestamp,
+            "endpoints_tested": result.endpoints_tested,
+            "summary": result.summary,
+            "findings": [asdict(f) for f in result.findings],
+        }
+        filepath.write_text(json.dumps(payload, indent=2, default=str))
+        logger.info(f"[+] Results saved → {filepath}")
+        return str(filepath)
 
     async def _discover_business_endpoints(self) -> List[str]:
         """Discover active business logic endpoints."""
