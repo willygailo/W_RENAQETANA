@@ -216,6 +216,7 @@ def _query_ct_logs(client: httpx.Client, target: str, result: ReconResult):
 def _query_doh(client: httpx.Client, target: str, result: ReconResult):
     """Query DNS-over-HTTPS providers with multiple record types."""
     logger.info("Querying DoH providers...")
+    import concurrent.futures
     
     doh_providers = [
         ("Google", "https://dns.google/resolve"),
@@ -234,48 +235,61 @@ def _query_doh(client: httpx.Client, target: str, result: ReconResult):
         "prometheus", "kibana", "elastic", "log", "logs", "status", "health",
     ]
     
-    # Query multiple record types
-    record_types = ["A", "AAAA", "CNAME", "MX", "TXT", "NS"]
+    record_types = ["A", "CNAME"]
     
+    def check_subdomain(provider_url, domain, rtype):
+        try:
+            resp = client.get(
+                provider_url,
+                params={"name": domain, "type": rtype},
+                headers={"Accept": "application/dns-json"},
+                timeout=3.0,
+            )
+            if resp.status_code == 200:
+                return rtype, domain, resp.json()
+        except Exception:
+            pass
+        return rtype, domain, None
+
+    # Prepare tasks
+    tasks = []
     for provider_name, provider_url in doh_providers:
         for sub in common_subdomains:
             domain = f"{sub}.{target}"
             for rtype in record_types:
-                try:
-                    resp = client.get(
-                        provider_url,
-                        params={"name": domain, "type": rtype},
-                        headers={"Accept": "application/dns-json"},
-                    )
-                    
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        if data.get("Answer"):
-                            for answer in data["Answer"]:
-                                # Extract IP addresses from A records
-                                if rtype == "A" and domain not in result.subdomains:
-                                    result.subdomains.append(domain)
-                                    break
-                                # Extract CNAME targets
-                                elif rtype == "CNAME":
-                                    cname = answer.get("data", "").rstrip(".")
-                                    if cname and cname != domain:
-                                        # Potential subdomain takeover check
-                                        result.findings.append(ReconFinding(
-                                            category="recon",
-                                            severity="info",
-                                            title="CNAME Record Found",
-                                            description=f"{domain} -> {cname}",
-                                            endpoint=f"dns://{domain}",
-                                        ))
-                                        if domain not in result.subdomains:
-                                            result.subdomains.append(domain)
-                                        break
-                except Exception:
-                    continue
+                tasks.append((provider_url, domain, rtype))
+
+    # Run tasks in parallel
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        futures = [executor.submit(check_subdomain, url, dom, rt) for url, dom, rt in tasks]
+        for future in concurrent.futures.as_completed(futures):
+            rtype, domain, data = future.result()
+            if data and data.get("Answer"):
+                for answer in data["Answer"]:
+                    if rtype == "A":
+                        if domain not in result.subdomains:
+                            result.subdomains.append(domain)
+                        break
+                    elif rtype == "CNAME":
+                        cname = answer.get("data", "").rstrip(".")
+                        if cname and cname != domain:
+                            # Avoid duplicates in findings
+                            exists = any(f.endpoint == f"dns://{domain}" for f in result.findings)
+                            if not exists:
+                                result.findings.append(ReconFinding(
+                                    category="recon",
+                                    severity="info",
+                                    title="CNAME Record Found",
+                                    description=f"{domain} -> {cname}",
+                                    endpoint=f"dns://{domain}",
+                                ))
+                            if domain not in result.subdomains:
+                                result.subdomains.append(domain)
+                            break
     
     result.subdomains = list(set(result.subdomains))
     logger.info(f"Found {len(result.subdomains)} subdomains via DoH")
+
 
 
 def _ai_subdomain_discovery(target: str, result: ReconResult):
@@ -461,3 +475,36 @@ def _check_subdomain_takeover(client: httpx.Client, target: str, result: ReconRe
                         break
     
     logger.info("Subdomain takeover check completed")
+
+
+def _save_results(result: ReconResult, output_file: Path):
+    """Save results to JSON file."""
+    # Ensure the parent directory exists
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    data = {
+        "target": result.target,
+        "timestamp": result.timestamp,
+        "summary": result.summary,
+        "subdomains": result.subdomains,
+        "certificates": result.certificates,
+        "findings": [
+            {
+                "category": f.category,
+                "severity": f.severity,
+                "title": f.title,
+                "description": f.description,
+                "evidence": f.evidence,
+                "endpoint": f.endpoint,
+                "payload": f.payload,
+                "remediation": f.remediation,
+            }
+            for f in result.findings
+        ],
+    }
+    
+    with open(output_file, "w") as f:
+        json.dump(data, f, indent=2)
+    
+    logger.info(f"Results saved to {output_file}")
+
