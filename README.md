@@ -197,32 +197,26 @@
 | 🐍 **Python** | 3.10+ |
 | 🔧 **Go** | 1.21+ |
 
-### 📦 **Install BountyKit**
+### 📦 **Install & Setup BountyKit**
 
 ```bash
-# Clone the repository
+# 1. Clone the repository
 git clone https://github.com/willygailo/W_RENAQETANA.git
 cd W_RENAQETANA
 
-# Create virtual environment & install
+# 2. Create virtual environment & install
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
-```
 
-### 🛠️ **Setup External Tools**
+# 3. Make available everywhere (Add virtualenv to your PATH)
+echo 'export PATH="$HOME/Documents/W_RENAQETANA/.venv/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
 
-```bash
-# Install all required external tools (subfinder, nuclei, sqlmap, etc.)
+# 4. Install all external scanners, API tools, and dependencies
 bountykit setup
 ```
 
-### 🔗 **Make Available Everywhere**
-
-```bash
-echo 'export PATH="$HOME/Documents/W_RENAQETANA/.venv/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
-```
 
 <br>
 
