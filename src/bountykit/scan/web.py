@@ -8,6 +8,8 @@ from typing import Optional
 
 from rich.console import Console
 
+from bountykit.utils.validator import sanitize_target_filename
+
 console = Console()
 
 
@@ -80,7 +82,7 @@ def run_nuclei(
         console.print("  [yellow]Nuclei scan timed out[/yellow]")
 
     # Save results
-    output_file = Path(output_dir) / f"{target.replace('://', '_')}_nuclei.json"
+    output_file = Path(output_dir) / f"{sanitize_target_filename(target)}_nuclei.json"
     with open(output_file, "w") as f:
         json.dump(results, f, indent=2)
 

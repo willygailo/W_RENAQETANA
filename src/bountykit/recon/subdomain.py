@@ -18,6 +18,8 @@ import socket
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from bountykit.utils.validator import sanitize_target_filename
+
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -295,7 +297,7 @@ class SubdomainScanner:
 
     def _save_results(self, result: SubdomainResult):
         """Save scan results."""
-        output_file = Path(self.output_dir) / f"{self.target}_subdomains.json"
+        output_file = Path(self.output_dir) / f"{sanitize_target_filename(self.target)}_subdomains.json"
 
         with open(output_file, "w") as f:
             json.dump(

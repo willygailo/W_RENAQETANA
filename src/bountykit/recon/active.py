@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, field
 
+from bountykit.utils.validator import sanitize_target_filename
+
 import httpx
 import tenacity
 
@@ -112,7 +114,7 @@ def probe_hosts(
             _web_technology_detection(client, target, result)
 
     # Save results
-    output_file = Path(output_dir) / f"{target}_active_recon.json"
+    output_file = Path(output_dir) / f"{sanitize_target_filename(target)}_active_recon.json"
     _save_results(result, output_file)
 
     return result
@@ -366,7 +368,7 @@ def scan_ports(
         results["open_ports"] = ports
         logger.info(f"Found {len(ports)} open ports")
 
-    output_file = Path(output_dir) / f"{target}_ports.json"
+    output_file = Path(output_dir) / f"{sanitize_target_filename(target)}_ports.json"
     with open(output_file, "w") as f:
         json.dump(results, f, indent=2)
 

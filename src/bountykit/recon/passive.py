@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, field
 
+from bountykit.utils.validator import sanitize_target_filename
+
 import httpx
 import tenacity
 
@@ -106,7 +108,7 @@ def passive_dns(
             _ai_subdomain_discovery(target, result)
 
     # Save results
-    output_file = Path(output_dir) / f"{target}_passive_dns.json"
+    output_file = Path(output_dir) / f"{sanitize_target_filename(target)}_passive_dns.json"
     _save_results(result, output_file)
 
     return result

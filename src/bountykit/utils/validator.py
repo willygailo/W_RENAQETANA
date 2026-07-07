@@ -75,3 +75,70 @@ def sanitize_target(target: str) -> str:
     # Remove shell metacharacters
     dangerous = set(";&|`$(){}[]!#~<>?\\'\"")
     return "".join(c for c in target if c not in dangerous)
+
+
+def sanitize_target_filename(target: str) -> str:
+    """Convert a target (URL or domain) into a safe filename component.
+
+    Handles any input: URLs, domains, subdomains, or malformed targets.
+    Strips schemes, replaces path-unsafe chars with underscores, and
+    ensures the result is a single flat filename (no directory separators).
+
+    Examples:
+        "https://www.fortinet.com" → "www.fortinet.com"
+        "https://example.com/path?q=1" → "example.com_path_q_1"
+        "example.com" → "example.com"
+        "admin.https://www.fortinet.com" → "admin.www.fortinet.com"
+        "subdomain.example.com" → "subdomain.example.com"
+    """
+    from urllib.parse import urlparse
+
+    # Strip any leading/trailing whitespace
+    target = target.strip()
+
+    # Try to parse as URL
+    try:
+        if target.startswith(("http://", "https://")):
+            parsed = urlparse(target)
+            hostname = parsed.hostname or ""
+            path = parsed.path.lstrip("/") if parsed.path else ""
+            query = parsed.query.replace("=", "_").replace("&", "_") if parsed.query else ""
+
+            parts = [hostname]
+            if path:
+                parts.append(path.replace("/", "_"))
+            if query:
+                parts.append(query)
+
+            result = "_".join(parts)
+        else:
+            # Not a standard URL — strip any embedded scheme like "admin.https://..."
+            # Replace "://" with "." so "admin.https://www.fortinet.com" → "admin.https.www.fortinet.com"
+            cleaned = target.replace("://", ".")
+            # Now try to parse the cleaned version as a URL in case it became one
+            if cleaned.startswith(("http.", "https.")):
+                cleaned = cleaned[5:]  # strip "http." or "https."
+            result = cleaned
+    except Exception:
+        result = target
+
+    # Replace ANY character that is unsafe in filenames
+    # On Linux only / is truly banned, but we also clean : ? * " ' and more for safety
+    unsafe = '/:*?"<>|\\\' ;\t;&|`$(){}[]!#~()='
+    for ch in unsafe:
+        result = result.replace(ch, "_")
+
+    # Collapse multiple underscores and dots
+    while "__" in result:
+        result = result.replace("__", "_")
+    while ".." in result:
+        result = result.replace("..", ".")
+
+    # Strip leading/trailing underscores and dots
+    result = result.strip("_.")
+
+    # Truncate to reasonable length (keep under 200 chars)
+    if len(result) > 200:
+        result = result[:200]
+
+    return result

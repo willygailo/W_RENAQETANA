@@ -46,13 +46,13 @@ def start_monitor(
                 new_cves = search_cve(tech, limit=10)
 
                 # Filter new CVEs
-                for cve in new_cves:
-                    if cve["id"] not in known_cves:
-                        known_cves.add(cve["id"])
-                        console.print(f"[bold red]NEW: {cve['id']}[/bold red] — {cve['description'][:80]}")
+                for cve in new_cves.findings:
+                    if cve.cve_id not in known_cves:
+                        known_cves.add(cve.cve_id)
+                        console.print(f"[bold red]NEW: {cve.cve_id}[/bold red] — {cve.description[:80]}")
 
                         if notify:
-                            _send_webhook(notify, cve, tech)
+                            _send_webhook(notify, {"id": cve.cve_id, "description": cve.description}, tech)
 
             _save_state(known_cves)
             console.print(f"[dim]Next check in {interval}s...[/dim]")
