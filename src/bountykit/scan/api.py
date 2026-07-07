@@ -57,6 +57,7 @@ OWASP_API_2026_TESTS = [
         "payloads": [
             {"type": "id_enumeration", "paths": ["/1", "/2", "/100", "/admin", "/../1"]},
             {"type": "path_traversal", "paths": ["/../../admin", "/%2e%2e/admin"]},
+            {"type": "idor", "params": ["id", "user_id", "account_id", "order_id"]},
         ],
     },
     {
@@ -69,6 +70,7 @@ OWASP_API_2026_TESTS = [
             {"type": "jwt_none", "header": "alg: none"},
             {"type": "jwt_weak", "algorithms": ["none", "HS256"]},
             {"type": "session_fixation", "cookie_manipulation": True},
+            {"type": "jwt_weak_secret", "common_secrets": ["secret", "password", "123456"]},
         ],
     },
     {
@@ -78,8 +80,9 @@ OWASP_API_2026_TESTS = [
         "severity": "high",
         "description": "Exposing or modifying properties not intended for the client",
         "payloads": [
-            {"type": "mass_assignment", "properties": ["role", "admin", "price", "discount"]},
+            {"type": "mass_assignment", "properties": ["role", "admin", "price", "discount", "is_verified", "credit_balance"]},
             {"type": "excessive_data", "check_response": True},
+            {"type": "graphql_introspection", "query": "{__schema{types{name,fields{name}}}}"},
         ],
     },
     {
@@ -92,6 +95,7 @@ OWASP_API_2026_TESTS = [
             {"type": "rapid_requests", "count": 50, "delay": 0.1},
             {"type": "large_payload", "size_mb": 10},
             {"type": "llm_token_spend", "prompt_repeat": 100},
+            {"type": "pagination_abuse", "max_page": 1000},
         ],
     },
     {
@@ -102,7 +106,7 @@ OWASP_API_2026_TESTS = [
         "description": "Accessing admin functions without proper role checks",
         "payloads": [
             {"type": "method_override", "headers": ["X-HTTP-Method-Override", "X-HTTP-Method"]},
-            {"type": "admin_endpoints", "paths": ["/admin", "/api/admin", "/internal", "/debug"]},
+            {"type": "admin_endpoints", "paths": ["/admin", "/api/admin", "/internal", "/debug", "/system", "/management"]},
         ],
     },
     {
@@ -114,6 +118,7 @@ OWASP_API_2026_TESTS = [
         "payloads": [
             {"type": "automation_detection", "user_agent_rotation": True},
             {"type": "captcha_bypass", "response_manipulation": True},
+            {"type": "race_condition", "concurrent_requests": 10},
         ],
     },
     {
@@ -138,6 +143,7 @@ OWASP_API_2026_TESTS = [
             {"type": "cors_check", "origins": ["null", "https://evil.com"]},
             {"type": "options_method"},
             {"type": "error_leakage", "triggers": ["invalid_json", "null_id", "sql_injection"]},
+            {"type": "security_headers"},
         ],
     },
     {
@@ -147,8 +153,8 @@ OWASP_API_2026_TESTS = [
         "severity": "medium",
         "description": "Old API versions, undocumented endpoints exposed",
         "payloads": [
-            {"type": "version_enumeration", "versions": ["/v1", "/v2", "/v3", "/beta", "/legacy"]},
-            {"type": "swagger_exposure", "paths": ["/swagger.json", "/openapi.json", "/api-docs"]},
+            {"type": "version_enumeration", "versions": ["/v1", "/v2", "/v3", "/v4", "/beta", "/legacy", "/dev", "/staging"]},
+            {"type": "swagger_exposure", "paths": ["/swagger.json", "/openapi.json", "/api-docs", "/swagger-ui", "/redoc"]},
         ],
     },
     {
@@ -163,6 +169,46 @@ OWASP_API_2026_TESTS = [
             {"type": "llm_context_manipulation", "data_exfiltration": True},
         ],
     },
+]
+
+# OAuth/OpenID Connect testing payloads
+OAUTH_PAYLOADS = {
+    "redirect_uri_manipulation": [
+        "http://evil.com/callback",
+        "http://evil.com/callback?legitimate=true",
+        "https://legitimate.com%40evil.com",
+        "javascript:alert(1)",
+        "data:text/html,<script>alert(1)</script>",
+    ],
+    "token_manipulation": [
+        "access_token=invalid",
+        "code=invalid",
+        "grant_type=authorization_code&code=invalid",
+    ],
+    "scope_escalation": [
+        "scope=admin",
+        "scope=read+write+admin",
+        "scope=*",
+    ],
+}
+
+# API versioning patterns
+API_VERSIONING_PATTERNS = [
+    "/v1",
+    "/v2",
+    "/v3",
+    "/v4",
+    "/api/v1",
+    "/api/v2",
+    "/api/v3",
+    "/beta",
+    "/preview",
+    "/legacy",
+    "/deprecated",
+    "/internal",
+    "/debug",
+    "/staging",
+    "/dev",
 ]
 
 
@@ -214,10 +260,13 @@ def _run_api_test(client: httpx.Client, target: str, test: Dict, result: APIResu
     try:
         if test_id == "API1":
             _test_bola(client, target, test, result)
+            test_bola_idor(client, target, result)
         elif test_id == "API2":
             _test_auth_weakness(client, target, test, result)
+            test_oauth_security(client, target, result)
         elif test_id == "API3":
             _test_mass_assignment(client, target, test, result)
+            test_graphql_introspection(client, target, result)
         elif test_id == "API4":
             _test_rate_limit(client, target, test, result)
         elif test_id == "API5":
@@ -228,6 +277,7 @@ def _run_api_test(client: httpx.Client, target: str, test: Dict, result: APIResu
             _test_misconfiguration(client, target, test, result)
         elif test_id == "API9":
             _test_inventory(client, target, test, result)
+            test_versioning_exposure(client, target, result)
         elif test_id == "API10":
             _test_ai_consumption(client, target, test, result)
     except Exception as e:
@@ -539,6 +589,221 @@ def _test_ai_consumption(client: httpx.Client, target: str, test: Dict, result: 
                             payload=payload[:100],
                             remediation="Implement input sanitization, output filtering",
                         ))
+        except Exception:
+            continue
+
+
+def test_oauth_security(client: httpx.Client, target: str, result: APIResult):
+    """Test OAuth/OpenID Connect security misconfigurations."""
+    base_url = target.rstrip("/")
+
+    # Test redirect_uri manipulation
+    for uri in OAUTH_PAYLOADS["redirect_uri_manipulation"]:
+        try:
+            # Common OAuth callback endpoints
+            auth_endpoints = [
+                "/oauth/authorize",
+                "/auth/authorize",
+                "/oauth2/authorize",
+                "/openid-connect/authorize",
+                "/connect/authorize",
+                "/realms/protocol/openid-connect/auth",
+            ]
+            for endpoint in auth_endpoints:
+                url = f"{base_url}{endpoint}?client_id=legitimate&redirect_uri={uri}&response_type=code"
+                resp = client.get(url, follow_redirects=False)
+                if resp.status_code in [301, 302, 303, 307]:
+                    location = resp.headers.get("location", "")
+                    if uri in location or "evil.com" in location:
+                        result.findings.append(APIFinding(
+                            category="oauth",
+                            severity="critical",
+                            title="OAuth: Open Redirect via redirect_uri manipulation",
+                            description=f"Server redirects to attacker-controlled URI: {uri}",
+                            endpoint=url,
+                            remediation="Validate redirect_uri against whitelist of allowed callback URLs",
+                        ))
+        except Exception:
+            continue
+
+    # Test scope escalation
+    for scope in OAUTH_PAYLOADS["scope_escalation"]:
+        try:
+            url = f"{base_url}/oauth/authorize?client_id=legitimate&scope={scope}&response_type=code"
+            resp = client.get(url, follow_redirects=False)
+            if resp.status_code in [200, 302]:
+                result.findings.append(APIFinding(
+                    category="oauth",
+                    severity="high",
+                    title=f"OAuth: Scope escalation accepted ({scope})",
+                    description="Server accepts elevated scope values",
+                    endpoint=url,
+                    remediation="Validate requested scope against allowed scopes per client",
+                ))
+        except Exception:
+            continue
+
+
+def test_versioning_exposure(client: httpx.Client, target: str, result: APIResult):
+    """Test for API versioning misconfigurations and old version exposure."""
+    base_url = target.rstrip("/")
+
+    for version_path in API_VERSIONING_PATTERNS:
+        try:
+            url = f"{base_url}{version_path}"
+            resp = client.get(url)
+            if resp.status_code in [200, 301, 302]:
+                # Check if the old version still works
+                response_text = resp.text.lower()
+                is_active = any(marker in response_text for marker in [
+                    "api", "version", "json", "data", "results"
+                ])
+                if is_active:
+                    result.findings.append(APIFinding(
+                        category="inventory",
+                        severity="medium",
+                        title=f"API versioning: Old version exposed at {version_path}",
+                        description=f"API version {version_path} returns active data",
+                        endpoint=url,
+                        remediation="Deprecate and remove old API versions; redirect to current version",
+                    ))
+        except Exception:
+            continue
+
+
+def test_bola_idor(client: httpx.Client, target: str, result: APIResult):
+    """Test for BOLA/IDOR with enhanced ID parameter fuzzing."""
+    base_url = target.rstrip("/")
+
+    # Common resource endpoints
+    resource_endpoints = [
+        "/users/{id}",
+        "/api/users/{id}",
+        "/api/v1/users/{id}",
+        "/api/accounts/{id}",
+        "/api/orders/{id}",
+        "/api/profiles/{id}",
+        "/api/items/{id}",
+        "/api/documents/{id}",
+        "/api/invoices/{id}",
+        "/api/customers/{id}",
+    ]
+
+    # ID manipulation techniques
+    id_values = ["1", "2", "0", "999", "null", "undefined", "../1", "%00", "1%00", "-1"]
+
+    for endpoint_template in resource_endpoints:
+        for id_val in id_values:
+            try:
+                endpoint = endpoint_template.replace("{id}", id_val)
+                url = f"{base_url}{endpoint}"
+                resp = client.get(url)
+
+                if resp.status_code == 200:
+                    try:
+                        data = resp.json()
+                        if isinstance(data, dict) and len(data) > 0:
+                            # Check for sensitive fields in response
+                            sensitive_fields = [
+                                "password", "token", "secret", "email",
+                                "phone", "ssn", "credit_card", "balance"
+                            ]
+                            found_sensitive = [
+                                f for f in sensitive_fields if f in str(data).lower()
+                            ]
+                            if found_sensitive:
+                                result.findings.append(APIFinding(
+                                    category="authorization",
+                                    severity="critical",
+                                    title=f"BOLA/IDOR: Sensitive data at {endpoint}",
+                                    description=f"Accessible via ID manipulation, exposes: {', '.join(found_sensitive)}",
+                                    endpoint=url,
+                                    payload=f"id={id_val}",
+                                    remediation="Implement object-level authorization checks",
+                                ))
+                                break  # Only report first finding per endpoint
+                    except Exception:
+                        pass
+            except Exception:
+                continue
+
+
+def test_graphql_introspection(client: httpx.Client, target: str, result: APIResult):
+    """Test for GraphQL introspection exposure."""
+    base_url = target.rstrip("/")
+
+    graphql_endpoints = ["/graphql", "/api/graphql", "/gql", "/query", "/v1/graphql"]
+
+    introspection_query = """
+    {
+        __schema {
+            types {
+                name
+                fields {
+                    name
+                    type {
+                        name
+                    }
+                }
+            }
+        }
+    }
+    """
+
+    for endpoint in graphql_endpoints:
+        try:
+            url = f"{base_url}{endpoint}"
+            resp = client.post(
+                url,
+                json={"query": introspection_query},
+                headers={"Content-Type": "application/json"},
+            )
+
+            if resp.status_code == 200:
+                data = resp.json()
+                if "data" in data and "__schema" in str(data.get("data", {})):
+                    types_count = len(
+                        data.get("data", {}).get("__schema", {}).get("types", [])
+                    )
+                    result.findings.append(APIFinding(
+                        category="configuration",
+                        severity="high",
+                        title=f"GraphQL: Introspection enabled at {endpoint}",
+                        description=f"Full schema introspection available ({types_count} types)",
+                        endpoint=url,
+                        remediation="Disable introspection in production",
+                    ))
+        except Exception:
+            continue
+
+    # Test GraphQL field suggestions (error information disclosure)
+    for endpoint in graphql_endpoints:
+        try:
+            url = f"{base_url}{endpoint}"
+            resp = client.post(
+                url,
+                json={"query": "{ nonExistentField12345 }"},
+                headers={"Content-Type": "application/json"},
+            )
+
+            if resp.status_code == 200:
+                data = resp.json()
+                errors = data.get("errors", [])
+                for error in errors:
+                    message = error.get("message", "")
+                    # Check if server suggests similar field names
+                    if any(suggestion in message.lower() for suggestion in [
+                        "did you mean", "suggestion", "similar"
+                    ]):
+                        result.findings.append(APIFinding(
+                            category="configuration",
+                            severity="medium",
+                            title="GraphQL: Field suggestions leak schema info",
+                            description=f"Server suggests similar field names: {message[:100]}",
+                            endpoint=url,
+                            remediation="Disable field suggestions in production",
+                        ))
+                        break
         except Exception:
             continue
 

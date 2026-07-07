@@ -70,6 +70,16 @@ ACTIVE_RECON_TECHNIQUES = [
         "name": "Web Technology Detection",
         "description": "Identify frameworks, libraries, and versions",
     },
+    {
+        "id": "http_methods",
+        "name": "HTTP Methods Enumeration",
+        "description": "Test for allowed HTTP methods and misconfigurations",
+    },
+    {
+        "id": "common_misconfigs",
+        "name": "Common Misconfigurations",
+        "description": "Check for exposed files, directories, and debug endpoints",
+    },
 ]
 
 
@@ -112,6 +122,14 @@ def probe_hosts(
         # Web technology detection
         if techniques is None or "web_technology_detection" in techniques:
             _web_technology_detection(client, target, result)
+        
+        # HTTP methods enumeration
+        if techniques is None or "http_methods" in techniques:
+            _http_methods_enumeration(client, target, result)
+        
+        # Common misconfigurations
+        if techniques is None or "common_misconfigs" in techniques:
+            _check_common_misconfigs(client, target, result)
 
     # Save results
     output_file = Path(output_dir) / f"{sanitize_target_filename(target)}_active_recon.json"
@@ -193,49 +211,135 @@ def _advanced_http_fingerprint(client: httpx.Client, target: str, result: ReconR
         # Check server header
         server = resp.headers.get("server", "").lower()
         
-        # Detect WAF/CDN
+        # Comprehensive WAF/CDN detection - 2026 patterns
         waf_indicators = {
-            "cloudflare": "Cloudflare CDN",
-            "akamai": "Akamai CDN",
-            "incapsula": "Incapsula WAF",
-            "sucuri": "Sucuri WAF",
-            "wordfence": "Wordfence WAF",
-            "modsecurity": "ModSecurity WAF",
-            "cloudfront": "AWS CloudFront",
+            # CDN providers
+            "cloudflare": {"name": "Cloudflare CDN", "headers": ["cf-ray", "cf-cache-status"]},
+            "akamai": {"name": "Akamai CDN", "headers": ["x-akamai-transformed"]},
+            "cloudfront": {"name": "AWS CloudFront", "headers": ["x-amz-cf-id", "x-amz-cf-pop"]},
+            "fastly": {"name": "Fastly CDN", "headers": ["x-fastly-request-id"]},
+            "edgecast": {"name": "EdgeCast CDN", "headers": ["x-ec-request-id"]},
+            "limelight": {"name": "Limelight CDN", "headers": ["llid"]},
+            
+            # WAF providers
+            "incapsula": {"name": "Incapsula/Imperva WAF", "headers": ["x-iinfo"]},
+            "sucuri": {"name": "Sucuri WAF", "headers": ["x-sucuri-id"]},
+            "wordfence": {"name": "Wordfence WAF", "headers": ["wordfence-verifiedhuman"]},
+            "modsecurity": {"name": "ModSecurity WAF", "headers": []},
+            "barracuda": {"name": "Barracuda WAF", "headers": ["barra_counter_session"]},
+            "f5_bigip": {"name": "F5 BIG-IP ASM", "headers": ["bigip"]},
+            "citrix_netscaler": {"name": "Citrix NetScaler", "headers": ["ns_af"]},
+            "denyall": {"name": "DenyAll WAF", "headers": ["x-denied-all"]},
+            "fortiweb": {"name": "Fortinet FortiWeb", "headers": []},
+            "radware": {"name": "Radware AppWall", "headers": []},
+            "reblaze": {"name": "Reblaze WAF", "headers": ["x-reblaze"]},
+            "stackpath": {"name": "StackPath CDN", "headers": ["x-hw"]},
+            
+            # Bot protection
+            "datadome": {"name": "DataDome Bot Protection", "headers": ["x-datadome"]},
+            "kasada": {"name": "Kasada Bot Protection", "headers": ["x-kasada"]},
+            "perimeterx": {"name": "PerimeterX", "headers": ["x-px"]},
+            "cloudflare_bot": {"name": "Cloudflare Bot Management", "headers": ["cf-bot-management"]},
+            
+            # Server-side
+            "varnish": {"name": "Varnish Cache", "headers": ["x-varnish"]},
+            "squid": {"name": "Squid Proxy", "headers": ["x-squid-error"]},
+            "ats": {"name": "Apache Traffic Server", "headers": ["x-ats"]},
+            "gunicorn": {"name": "Gunicorn", "headers": ["server"]},
+            "uvicorn": {"name": "Uvicorn", "headers": ["server"]},
         }
         
-        for indicator, name in waf_indicators.items():
-            if indicator in server or any(indicator in v.lower() for v in resp.headers.values()):
-                result.findings.append(ReconFinding(
-                    category="recon",
-                    severity="info",
-                    title=f"Detected {name}",
-                    description=f"Target uses {name}",
-                    endpoint=url,
-                ))
+        detected_wafs = []
         
-        # Check for security headers
-        security_headers = [
-            "strict-transport-security",
-            "content-security-policy",
-            "x-frame-options",
-            "x-content-type-options",
-            "x-xss-protection",
-        ]
+        for indicator, info in waf_indicators.items():
+            # Check server header
+            if indicator in server:
+                detected_wafs.append(info["name"])
+                continue
+            
+            # Check specific headers
+            for header in info["headers"]:
+                if header in resp.headers:
+                    detected_wafs.append(info["name"])
+                    break
+            
+            # Check all header values
+            if info["name"] not in detected_wafs:
+                for header_name, header_value in resp.headers.items():
+                    if indicator in header_value.lower():
+                        detected_wafs.append(info["name"])
+                        break
         
-        missing_headers = [h for h in security_headers if h not in resp.headers]
+        # Report detected WAFs
+        if detected_wafs:
+            result.findings.append(ReconFinding(
+                category="recon",
+                severity="info",
+                title="WAF/CDN Detected",
+                description=f"Detected protection: {', '.join(set(detected_wafs))}",
+                endpoint=url,
+                evidence=f"WAF signatures found in headers",
+            ))
         
+        # Enhanced security header analysis
+        security_headers = {
+            "strict-transport-security": {"severity": "high", "description": "HSTS not set"},
+            "content-security-policy": {"severity": "high", "description": "CSP not set"},
+            "x-frame-options": {"severity": "medium", "description": "Clickjacking protection missing"},
+            "x-content-type-options": {"severity": "medium", "description": "MIME sniffing protection missing"},
+            "x-xss-protection": {"severity": "low", "description": "Legacy XSS protection missing"},
+            "referrer-policy": {"severity": "medium", "description": "Referrer policy not set"},
+            "permissions-policy": {"severity": "medium", "description": "Permissions policy not set"},
+            "cross-origin-opener-policy": {"severity": "low", "description": "COOP not set"},
+            "cross-origin-resource-policy": {"severity": "low", "description": "CORP not set"},
+            "cross-origin-embedder-policy": {"severity": "low", "description": "COEP not set"},
+        }
+        
+        missing_headers = []
+        weak_headers = []
+        
+        for header, info in security_headers.items():
+            if header not in resp.headers:
+                missing_headers.append((header, info))
+            else:
+                # Check for weak configurations
+                value = resp.headers[header].lower()
+                if header == "strict-transport-security":
+                    if "max-age=0" in value or "max-age=300" in value:
+                        weak_headers.append((header, "HSTS max-age too short"))
+                elif header == "content-security-policy":
+                    if "unsafe-inline" in value or "unsafe-eval" in value:
+                        weak_headers.append((header, "CSP allows unsafe inline/eval"))
+                    if "*" in value:
+                        weak_headers.append((header, "CSP uses wildcard source"))
+                elif header == "x-frame-options":
+                    if value not in ["deny", "sameorigin"]:
+                        weak_headers.append((header, f"Weak X-Frame-Options: {value}"))
+        
+        # Report missing headers
         if missing_headers:
+            severity = "high" if any(h[1]["severity"] == "high" for h in missing_headers) else "medium"
+            result.findings.append(ReconFinding(
+                category="recon",
+                severity=severity,
+                title="Missing Security Headers",
+                description=f"Missing: {', '.join(h[0] for h in missing_headers)}",
+                endpoint=url,
+                remediation="Implement recommended security headers",
+            ))
+        
+        # Report weak headers
+        for header, issue in weak_headers:
             result.findings.append(ReconFinding(
                 category="recon",
                 severity="low",
-                title="Missing Security Headers",
-                description=f"Missing headers: {', '.join(missing_headers)}",
+                title=f"Weak {header} Configuration",
+                description=issue,
                 endpoint=url,
-                remediation="Add missing security headers",
+                remediation=f"Strengthen {header} configuration",
             ))
         
-        # Check for server version disclosure
+        # Server version disclosure
         if server:
             result.findings.append(ReconFinding(
                 category="recon",
@@ -261,49 +365,370 @@ def _web_technology_detection(client: httpx.Client, target: str, result: ReconRe
         headers = resp.headers
         body = resp.text.lower()
         
-        # Technology detection patterns
-        tech_patterns = {
-            "x-powered-by": {"PHP": "php", "Express": "nodejs", "ASP.NET": "dotnet"},
-            "x-generator": {"WordPress": "wordpress", "Drupal": "drupal", "Joomla": "joomla"},
-            "set-cookie": {"PHPSESSID": "php", "JSESSIONID": "java", "connect.sid": "nodejs"},
-        }
-        
         detected_techs = []
         
-        # Check headers
-        for header, patterns in tech_patterns.items():
+        # Header-based detection
+        header_patterns = {
+            "x-powered-by": {
+                "PHP": "PHP",
+                "Express": "Node.js/Express",
+                "ASP.NET": "ASP.NET",
+                "Django": "Django",
+                "Flask": "Flask",
+                "Ruby on Rails": "Ruby on Rails",
+                "Laravel": "Laravel",
+                "Fastify": "Node.js/Fastify",
+                "Koa": "Node.js/Koa",
+                "Hapi": "Node.js/Hapi",
+            },
+            "x-generator": {
+                "WordPress": "WordPress",
+                "Drupal": "Drupal",
+                "Joomla": "Joomla",
+                "Hugo": "Hugo",
+                "Jekyll": "Jekyll",
+                "Next.js": "Next.js",
+                "Gatsby": "Gatsby",
+            },
+            "set-cookie": {
+                "PHPSESSID": "PHP",
+                "JSESSIONID": "Java",
+                "connect.sid": "Node.js",
+                "rack.session": "Ruby/Rack",
+                "_session_id": "Python/Django",
+                "csrftoken": "Python/Django",
+                "laravel_session": "PHP/Laravel",
+                "XSRF-TOKEN": "PHP/Laravel",
+                "bf_sid": "PHP/Bitrix",
+            },
+            "x-aspnet-version": {"ASP.NET": "ASP.NET"},
+            "x-aspnetmvc-version": {"MVC": "ASP.NET MVC"},
+            "x-drupal-cache": {"Drupal": "Drupal"},
+            "x-varnish": {"Varnish": "Varnish Cache"},
+            "x-cache": {"HIT": "CDN/Cache", "MISS": "CDN/Cache"},
+            "x-cdn": {"Incapsula": "Incapsula CDN"},
+        }
+        
+        for header, patterns in header_patterns.items():
             header_value = headers.get(header, "").lower()
             for tech_name, tech_id in patterns.items():
                 if tech_name.lower() in header_value:
-                    detected_techs.append(tech_name)
+                    detected_techs.append(tech_id)
         
-        # Check body patterns
-        body_patterns = {
+        # Body-based detection - CMS
+        cms_patterns = {
             "wp-content": "WordPress",
+            "wp-includes": "WordPress",
+            "wp-json": "WordPress REST API",
+            "wp-login.php": "WordPress Login",
             "drupal.js": "Drupal",
+            "drupal.min.js": "Drupal",
+            "/sites/default/files": "Drupal",
             "joomla": "Joomla",
-            "react": "React",
-            "vue": "Vue.js",
-            "angular": "Angular",
-            "next.js": "Next.js",
-            "nuxt": "Nuxt.js",
+            "/media/jui": "Joomla",
+            "magento": "Magento",
+            "/static/frontend": "Magento 2",
+            "prestashop": "PrestaShop",
+            "shopify": "Shopify",
+            "squarespace": "Squarespace",
+            "wix.com": "Wix",
+            "webflow": "Webflow",
+            "ghost": "Ghost CMS",
+            "contentful": "Contentful",
+            "strapi": "Strapi",
         }
         
-        for pattern, tech_name in body_patterns.items():
-            if pattern in body:
+        # Body-based detection - Frameworks
+        framework_patterns = {
+            "react": "React",
+            "reactdom": "React",
+            "_next/static": "Next.js",
+            "_next/data": "Next.js",
+            "nuxt": "Nuxt.js",
+            "__nuxt": "Nuxt.js",
+            "angular": "Angular",
+            "ng-version": "Angular",
+            "vue.js": "Vue.js",
+            "vue.min.js": "Vue.js",
+            "ember": "Ember.js",
+            "backbone": "Backbone.js",
+            "jquery": "jQuery",
+            "bootstrap": "Bootstrap",
+            "tailwind": "Tailwind CSS",
+            "bulma": "Bulma CSS",
+            "materialize": "Materialize CSS",
+            "svelte": "Svelte",
+            "solid.js": "Solid.js",
+            "preact": "Preact",
+            "alpine.js": "Alpine.js",
+            "htmx": "HTMX",
+        }
+        
+        # Body-based detection - Server/Backend
+        backend_patterns = {
+            "laravel": "PHP/Laravel",
+            "symfony": "PHP/Symfony",
+            "codeigniter": "PHP/CodeIgniter",
+            "cakephp": "PHP/CakePHP",
+            "django": "Python/Django",
+            "flask": "Python/Flask",
+            "fastapi": "Python/FastAPI",
+            "rails": "Ruby on Rails",
+            "sinatra": "Ruby/Sinatra",
+            "express": "Node.js/Express",
+            "nestjs": "Node.js/NestJS",
+            "spring": "Java/Spring",
+            "struts": "Java/Struts",
+            "grails": "Java/Grails",
+            "dotnet": ".NET",
+            "blazor": ".NET/Blazor",
+        }
+        
+        # Body-based detection - Security/Analytics
+        security_patterns = {
+            "gtag": "Google Analytics",
+            "google-analytics": "Google Analytics",
+            "googletagmanager": "Google Tag Manager",
+            "hotjar": "Hotjar",
+            "mixpanel": "Mixpanel",
+            "segment": "Segment",
+            "amplitude": "Amplitude",
+            "intercom": "Intercom",
+            "crisp": "Crisp Chat",
+            "drift": "Drift",
+            "hubspot": "HubSpot",
+            "marketo": "Marketo",
+            "recaptcha": "reCAPTCHA",
+            "hcaptcha": "hCaptcha",
+            "turnstile": "Cloudflare Turnstile",
+        }
+        
+        # Check all patterns
+        all_patterns = {**cms_patterns, **framework_patterns, **backend_patterns, **security_patterns}
+        
+        for pattern, tech_name in all_patterns.items():
+            if pattern.lower() in body:
                 detected_techs.append(tech_name)
         
-        if detected_techs:
+        # Check for version information
+        version_patterns = {
+            r'wp-content/themes/([a-zA-Z0-9_-]+)': "WordPress Theme",
+            r'wp-content/plugins/([a-zA-Z0-9_-]+)': "WordPress Plugin",
+            r'/wp-includes/js/jquery/jquery\.([0-9.]+)': "jQuery Version",
+            r'ng-version="([0-9.]+)"': "Angular Version",
+            r'react@([0-9.]+)': "React Version",
+            r'vue@([0-9.]+)': "Vue Version",
+        }
+        
+        import re
+        for pattern, description in version_patterns.items():
+            match = re.search(pattern, resp.text)
+            if match:
+                version = match.group(1)
+                detected_techs.append(f"{description}: {version}")
+        
+        # Deduplicate and report
+        unique_techs = list(set(detected_techs))
+        if unique_techs:
             result.findings.append(ReconFinding(
                 category="recon",
                 severity="info",
                 title="Web Technologies Detected",
-                description=f"Detected technologies: {', '.join(set(detected_techs))}",
+                description=f"Detected {len(unique_techs)} technologies: {', '.join(unique_techs[:10])}",
                 endpoint=url,
+                evidence=f"Technologies: {unique_techs}",
             ))
             
     except Exception as e:
         logger.debug(f"Technology detection failed: {e}")
+
+
+def _http_methods_enumeration(client: httpx.Client, target: str, result: ReconResult):
+    """Enumerate HTTP methods and check for misconfigurations."""
+    logger.info("Enumerating HTTP methods...")
+    
+    url = f"https://{target}"
+    
+    # Common HTTP methods to test
+    methods = ["GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "TRACE", "CONNECT"]
+    
+    # Dangerous methods that should be disabled
+    dangerous_methods = {
+        "TRACE": "XST (Cross-Site Tracing) vulnerability",
+        "CONNECT": "Potential proxy abuse",
+        "PUT": "Unauthorized file upload",
+        "DELETE": "Unauthorized resource deletion",
+        "PATCH": "Unauthorized resource modification",
+    }
+    
+    try:
+        # First check OPTIONS response
+        options_resp = client.options(url)
+        allowed_methods = options_resp.headers.get("allow", "").upper()
+        
+        for method in methods:
+            try:
+                # Skip GET (already tested) and OPTIONS (just checked)
+                if method in ["GET", "OPTIONS"]:
+                    continue
+                
+                # Send request with specific method
+                resp = client.request(method, url)
+                
+                # Check if method is allowed (non-405 response)
+                if resp.status_code != 405:  # 405 = Method Not Allowed
+                    if method in dangerous_methods:
+                        result.findings.append(ReconFinding(
+                            category="recon",
+                            severity="high",
+                            title=f"Dangerous HTTP Method Allowed: {method}",
+                            description=f"{dangerous_methods[method]}",
+                            endpoint=url,
+                            evidence=f"Method {method} returned status {resp.status_code}",
+                            remediation=f"Disable {method} method if not required",
+                        ))
+                    elif method not in ["GET", "HEAD", "POST"]:
+                        result.findings.append(ReconFinding(
+                            category="recon",
+                            severity="low",
+                            title=f"Uncommon HTTP Method Allowed: {method}",
+                            description=f"Method {method} is enabled",
+                            endpoint=url,
+                            evidence=f"Status: {resp.status_code}",
+                            remediation="Disable unnecessary HTTP methods",
+                        ))
+                        
+            except Exception:
+                continue
+        
+        # Check for CORS misconfigurations
+        cors_headers = {
+            "access-control-allow-origin": "CORS",
+            "access-control-allow-methods": "CORS Methods",
+            "access-control-allow-headers": "CORS Headers",
+            "access-control-allow-credentials": "CORS Credentials",
+        }
+        
+        for header, name in cors_headers.items():
+            if header in resp.headers:
+                value = resp.headers[header]
+                if header == "access-control-allow-origin" and value == "*":
+                    result.findings.append(ReconFinding(
+                        category="recon",
+                        severity="medium",
+                        title="CORS Wildcard Origin Allowed",
+                        description="Access-Control-Allow-Origin is set to *",
+                        endpoint=url,
+                        evidence=f"Header: {header}={value}",
+                        remediation="Restrict CORS origins to trusted domains",
+                    ))
+        
+    except Exception as e:
+        logger.debug(f"HTTP methods enumeration failed: {e}")
+
+
+def _check_common_misconfigs(client: httpx.Client, target: str, result: ReconResult):
+    """Check for common misconfigurations and exposed files."""
+    logger.info("Checking for common misconfigurations...")
+    
+    # Common paths to check
+    paths_to_check = {
+        # Debug/Admin panels
+        "/debug": "Debug endpoint exposed",
+        "/admin": "Admin panel accessible",
+        "/admin/login": "Admin login page accessible",
+        "/phpmyadmin": "phpMyAdmin exposed",
+        "/adminer": "Adminer exposed",
+        "/_admin": "Admin panel exposed",
+        
+        # Configuration files
+        "/.env": "Environment file exposed",
+        "/config.json": "Config file exposed",
+        "/config.php": "PHP config exposed",
+        "/settings.py": "Django settings exposed",
+        "/wp-config.php": "WordPress config exposed",
+        "/.git/config": "Git config exposed",
+        "/.git/HEAD": "Git repository exposed",
+        
+        # Backup files
+        "/backup": "Backup directory accessible",
+        "/backups": "Backups directory accessible",
+        "/dump": "Database dump accessible",
+        "/db.sql": "SQL dump exposed",
+        "/database.sql": "Database dump exposed",
+        
+        # Documentation
+        "/api-docs": "API documentation exposed",
+        "/swagger": "Swagger UI exposed",
+        "/swagger-ui.html": "Swagger UI exposed",
+        "/redoc": "ReDoc exposed",
+        "/graphql": "GraphQL endpoint exposed",
+        
+        # Monitoring
+        "/metrics": "Metrics endpoint exposed",
+        "/actuator": "Spring Actuator exposed",
+        "/actuator/health": "Health endpoint exposed",
+        "/actuator/env": "Environment endpoint exposed",
+        "/debug/vars": "Debug variables exposed",
+        
+        # Server status
+        "/server-status": "Apache status exposed",
+        "/server-info": "Apache info exposed",
+        "/nginx_status": "Nginx status exposed",
+        
+        # Source code
+        "/.svn": "SVN directory exposed",
+        "/.hg": "Mercurial directory exposed",
+        "/CVS": "CVS directory exposed",
+        "/WEB-INF": "Java WEB-INF exposed",
+        
+        # Logs
+        "/logs": "Logs directory accessible",
+        "/log": "Log file accessible",
+        "/access.log": "Access log exposed",
+        "/error.log": "Error log exposed",
+    }
+    
+    found_misconfigs = []
+    
+    for path, description in paths_to_check.items():
+        try:
+            url = f"https://{target}{path}"
+            resp = client.get(url, follow_redirects=False)
+            
+            # Check if resource exists (200 OK or redirect to content)
+            if resp.status_code == 200:
+                # Additional check to avoid false positives
+                content_length = int(resp.headers.get("content-length", 0))
+                content_type = resp.headers.get("content-type", "")
+                
+                # Skip if it's just a custom 404 page
+                if "text/html" in content_type and content_length > 5000:
+                    # Likely a custom 404 page
+                    continue
+                
+                # Add to findings
+                severity = "high" if any(s in path.lower() for s in [".env", ".git", "config", "dump", "log"]) else "medium"
+                
+                result.findings.append(ReconFinding(
+                    category="recon",
+                    severity=severity,
+                    title=f"Misconfiguration Found: {description}",
+                    description=f"Accessible at {path}",
+                    endpoint=url,
+                    evidence=f"Status: {resp.status_code}, Content-Type: {content_type}",
+                    remediation=f"Restrict access to {path}",
+                ))
+                
+                found_misconfigs.append(path)
+                
+        except Exception:
+            continue
+    
+    if found_misconfigs:
+        logger.info(f"Found {len(found_misconfigs)} misconfigurations")
+    else:
+        logger.info("No common misconfigurations found")
 
 
 def _save_results(result: ReconResult, output_file: Path):

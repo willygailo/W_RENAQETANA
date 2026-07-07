@@ -76,6 +76,22 @@ COMMON_SUBS = [
     # Misc
     "www2", "www3", "m", "mobile", "touch", "lite", "old",
     "new", "next", "legacy", "archive", "backup", "bak",
+    # 2026 additions - Cloud Native
+    "argocd", "flux", "tekton", "crossplane", "terraform", "ansible",
+    "puppet", "chef", "saltstack", "pulumi", "cloudformation",
+    # 2026 additions - Modern stacks
+    "vercel", "netlify", "cloudflare", "fastly", "akamai",
+    "render", "railway", "fly", "heroku", "digitalocean",
+    # 2026 additions - AI/ML
+    "ml", "ai", "model", "training", "inference", "prediction",
+    "jupyter", "notebook", "colab", "kubeflow", "mlflow",
+    "weights", "checkpoints", "datasets", "features",
+    # 2026 additions - API variants
+    "v1", "v2", "v3", "api2", "api3", "newapi", "oldapi",
+    "beta-api", "staging-api", "dev-api", "test-api",
+    # 2026 additions - Regional
+    "us-east", "us-west", "eu-west", "eu-central", "ap-southeast",
+    "ap-northeast", "sa-east", "af-south", "me-south",
 ]
 
 # ─── DoH Providers ──────────────────────────────────────────────────────────
@@ -129,6 +145,8 @@ class SubdomainScanner:
             follow_redirects=True,
         )
         os.makedirs(output_dir, exist_ok=True)
+        self._wildcard_ips: list[str] = []  # Track wildcard IPs
+        self._is_wildcard: bool = False
 
     def _add_finding(self, subdomain: str, source: str):
         """Add a subdomain finding if not duplicate."""
@@ -148,6 +166,35 @@ class SubdomainScanner:
             subdomain=subdomain,
             source=source,
         ))
+
+    def _detect_wildcard(self):
+        """Detect wildcard DNS configuration."""
+        logger.info("Detecting wildcard DNS...")
+        try:
+            # Try a random non-existent subdomain
+            import random
+            import string
+            random_sub = ''.join(random.choices(string.ascii_lowercase + string.digits, k=20))
+            random_domain = f"{random_sub}.{self.target}"
+            
+            ips = self._resolve_dns(random_domain)
+            if ips:
+                self._is_wildcard = True
+                self._wildcard_ips = ips
+                logger.warning(f"Wildcard DNS detected: *. {self.target} -> {ips}")
+                return True
+        except Exception:
+            pass
+        
+        self._is_wildcard = False
+        return False
+
+    def _is_wildcard_subdomain(self, subdomain: str) -> bool:
+        """Check if a subdomain resolves to wildcard IPs."""
+        if not self._is_wildcard:
+            return False
+        ips = self._resolve_dns(subdomain)
+        return set(ips) == set(self._wildcard_ips)
 
     def _resolve_dns(self, subdomain: str) -> list[str]:
         """Resolve subdomain to IP addresses."""
@@ -243,19 +290,132 @@ class SubdomainScanner:
 
         return [f for f in self.findings if f.source == "github"]
 
+    def enumerate_dns_records(self) -> dict:
+        """Enumerate DNS records for the target domain."""
+        logger.info(f"Enumerating DNS records for {self.target}")
+        
+        dns_records = {
+            "A": [],
+            "AAAA": [],
+            "CNAME": [],
+            "MX": [],
+            "TXT": [],
+            "NS": [],
+            "SOA": [],
+        }
+        
+        record_types = ["A", "AAAA", "CNAME", "MX", "TXT", "NS", "SOA"]
+        
+        for rtype in record_types:
+            try:
+                url = f"https://dns.google/resolve"
+                params = {"name": self.target, "type": rtype}
+                headers = {"Accept": "application/dns-json"}
+                
+                resp = self.session.get(url, params=params, headers=headers)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if data.get("Answer"):
+                        for answer in data["Answer"]:
+                            record_data = {
+                                "type": rtype,
+                                "data": answer.get("data", ""),
+                                "ttl": answer.get("TTL", 0),
+                            }
+                            dns_records[rtype].append(record_data)
+                            
+                            # Extract subdomains from CNAME records
+                            if rtype == "CNAME":
+                                cname = answer.get("data", "").rstrip(".")
+                                if cname.endswith(f".{self.target}"):
+                                    self._add_finding(cname, "dns_records")
+                            
+                            # Extract subdomains from MX records
+                            elif rtype == "MX":
+                                mx_host = answer.get("data", "").split()[-1].rstrip(".")
+                                if mx_host.endswith(f".{self.target}"):
+                                    self._add_finding(mx_host, "dns_records")
+            except Exception as e:
+                logger.debug(f"Failed to query {rtype} records: {e}")
+        
+        return dns_records
+
+    def check_dns_anomalies(self) -> list[dict]:
+        """Check for DNS anomalies that might indicate security issues."""
+        logger.info(f"Checking DNS anomalies for {self.target}")
+        
+        anomalies = []
+        
+        # Check for common DNS issues
+        dns_checks = {
+            "dangling_cname": {
+                "description": "CNAME record points to non-existent domain",
+                "severity": "medium",
+            },
+            "expired_domain": {
+                "description": "Domain referenced in DNS has expired",
+                "severity": "high",
+            },
+            "dns_rebinding": {
+                "description": "Potential DNS rebinding vulnerability",
+                "severity": "high",
+            },
+        }
+        
+        # Get CNAME records
+        try:
+            url = f"https://dns.google/resolve"
+            params = {"name": self.target, "type": "CNAME"}
+            resp = self.session.get(url, params=params)
+            
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("Answer"):
+                    for answer in data["Answer"]:
+                        cname = answer.get("data", "").rstrip(".")
+                        
+                        # Check if CNAME target exists
+                        try:
+                            socket.getaddrinfo(cname, None)
+                        except socket.gaierror:
+                            anomalies.append({
+                                "type": "dangling_cname",
+                                "record": cname,
+                                "description": "CNAME points to non-existent domain",
+                                "severity": "medium",
+                                "remediation": "Remove or update the dangling CNAME record",
+                            })
+        except Exception as e:
+            logger.debug(f"DNS anomaly check failed: {e}")
+        
+        return anomalies
+
     def dns_bruteforce(self, wordlist: list[str] | None = None) -> list[SubdomainFinding]:
         """DNS brute-force with common subdomain names."""
         logger.info(f"DNS brute-force for {self.target}")
+        
+        # First detect wildcard DNS
+        self._detect_wildcard()
+        
         subs_to_check = wordlist or COMMON_SUBS
+        found_count = 0
 
         for sub in subs_to_check:
             fqdn = f"{sub}.{self.target}"
             try:
                 socket.getaddrinfo(fqdn, None)
+                
+                # Skip wildcard subdomains
+                if self._is_wildcard_subdomain(fqdn):
+                    logger.debug(f"Skipping wildcard subdomain: {fqdn}")
+                    continue
+                
                 self._add_finding(fqdn, "dns_bruteforce")
+                found_count += 1
             except socket.gaierror:
                 pass
 
+        logger.info(f"DNS brute-force found {found_count} subdomains")
         return [f for f in self.findings if f.source == "dns_bruteforce"]
 
     def resolve_all(self):
@@ -280,6 +440,13 @@ class SubdomainScanner:
         self.enumerate_crtsh()
         self.enumerate_wayback()
         self.enumerate_github()
+        
+        # Enumerate DNS records
+        dns_records = self.enumerate_dns_records()
+        
+        # Check for DNS anomalies
+        dns_anomalies = self.check_dns_anomalies()
+        
         if brute:
             self.dns_bruteforce()
 
