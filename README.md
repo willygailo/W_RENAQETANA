@@ -220,7 +220,7 @@ bountykit setup
 ### 🔗 **Make Available Everywhere**
 
 ```bash
-echo 'export PATH="$HOME/W_RENAQETANA/.venv/bin:$PATH"' >> ~/.zshrc
+echo 'export PATH="$HOME/Documents/W_RENAQETANA/.venv/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
@@ -684,6 +684,8 @@ bountykit setup
 ```bash
 bountykit legal -t example.com
 bountykit legal -t example.com -s ./scope.txt
+bountykit legal -t example.com -o ./results
+bountykit legal -t example.com -s ./scope.txt -o ./results
 ```
 </details>
 

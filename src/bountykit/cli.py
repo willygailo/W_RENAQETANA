@@ -734,15 +734,34 @@ def setup():
 @main.command()
 @click.option("--target", "-t", required=True, help="Target to verify authorization for")
 @click.option("--scope", "-s", default=None, help="Path to scope file")
+@click.option("--output", "-o", default=None, type=click.Path(), help="Save authorization record to file")
 @click.pass_context
-def legal(ctx, target, scope):
+def legal(ctx, target, scope, output):
     """Check legal authorization for a target."""
+    import json
+    from datetime import datetime
+    from pathlib import Path
     from bountykit.utils.legal import check_authorization
     result = check_authorization(target, scope_file=scope)
     if result:
         console.print(f"[bold green]AUTHORIZED: {target} is in scope[/bold green]")
     else:
         console.print(f"[bold red]NOT AUTHORIZED: {target} is out of scope[/bold red]")
+    if output:
+        record = {
+            "target": target,
+            "authorized": result,
+            "scope_file": scope,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+        }
+        out_path = Path(output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        # If output is a directory, write a default filename inside it
+        if out_path.is_dir():
+            out_path = out_path / "legal_authorization.json"
+        with open(out_path, "w") as f:
+            json.dump(record, f, indent=2)
+        console.print(f"[dim]Authorization record saved → {out_path}[/dim]")
 
 
 if __name__ == "__main__":
