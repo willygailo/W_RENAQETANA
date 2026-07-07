@@ -123,8 +123,8 @@ Recon → Scan → CVE → Cloud → Advanced → Report — everything you need
 
 ```bash
 # 🔹 Clone the repository
-git clone https://github.com/willygailo/bountykit.git
-cd bountykit
+https://github.com/willygailo/W_RENAQETANA.git
+cd W_RENAQETANA
 
 # 🔹 Create virtual environment
 python3 -m venv .venv
