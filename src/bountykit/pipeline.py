@@ -7,6 +7,7 @@ Covers ADVANCED_BUGBOUNTY_CVE.md Section 19:
 - Report generation
 """
 
+import asyncio
 import json
 import os
 import time
@@ -221,31 +222,31 @@ def _execute_phase(target: str, phase: dict, output_dir: str) -> dict:
         from bountykit.cloud import aws, multi_cloud
 
         tool_map = {
-            "subdomain": lambda: subdomain.discover_subdomains(target, output_dir),
+            "subdomain": lambda: subdomain.enumerate_subdomains(target, output_dir),
             "passive": lambda: passive.passive_dns(target, output_dir),
             "active": lambda: active.probe_hosts([target], output_dir),
             "endpoints": lambda: ep.discover_all_endpoints(target, output_dir),
             "js_analysis": lambda: js_analysis.discover_js_files(target, output_dir),
             "crawler": lambda: crawler.crawl_deep(target, output_dir=output_dir),
-            "web": lambda: web.scan_nuclei(target, output_dir=output_dir),
-            "sqli": lambda: sqli.scan_sqli(target, output_dir=output_dir),
-            "xss": lambda: xss.scan_xss(target, output_dir=output_dir),
-            "ssrf": lambda: ssrf.scan_ssrf(target, output_dir),
-            "api": lambda: api.scan_api(target, output_dir=output_dir),
+            "web": lambda: web.run_nuclei(target, output_dir=output_dir),
+            "sqli": lambda: sqli.test_sqli(target, output_dir=output_dir),
+            "xss": lambda: xss.test_xss(target, output_dir=output_dir),
+            "ssrf": lambda: ssrf.test_ssrf(target, output_dir),
+            "api": lambda: api.test_api(target, output_dir=output_dir),
             "deserialization": lambda: deserialization.scan_all_deserialization(target, output_dir),
             "graphql": lambda: graphql.scan_graphql(target, output_dir),
             "oauth": lambda: oauth.test_redirect_uri(target, output_dir),
             "takeover": lambda: takeover.scan_takeover(target, output_dir),
             "headers": lambda: headers.analyze_headers(target, output_dir),
             "waf": lambda: waf.detect_waf(target, output_dir),
-            "ssti": lambda: ssti.SSTITester(target, output_dir=output_dir).run_all_tests(),
-            "smuggle": lambda: smuggling.HTTPSmugglingTester(target, output_dir=output_dir).run_all_tests(),
-            "race_condition": lambda: race_condition.RaceConditionTester(target, output_dir=output_dir).run_all_tests(),
-            "llm": lambda: llm.LLMTester(target, output_dir=output_dir).run_all_attacks(),
-            "supply_chain": lambda: supply_chain.SupplyChainScanner(target, output_dir=output_dir).run_all_checks(),
+            "ssti": lambda: asyncio.run(ssti.SSTITester(target, output_dir=output_dir).test_all()),
+            "smuggle": lambda: asyncio.run(smuggling.HTTPSmugglingTester(target, output_dir=output_dir).test_all()),
+            "race_condition": lambda: asyncio.run(race_condition.RaceConditionTester(target, output_dir=output_dir).test_all()),
+            "llm": lambda: asyncio.run(llm.LLMTester(target, output_dir=output_dir).test_all()),
+            "supply_chain": lambda: asyncio.run(supply_chain.SupplyChainScanner(target, output_dir=output_dir).scan_project()),
             "aws": lambda: aws.test_aws(target, output_dir=output_dir),
-            "multi_cloud": lambda: multi_cloud.MultiCloudScanner(target, output_dir=output_dir).run_all_tests(),
-            "search": lambda: search.search_cves(target, output_dir=output_dir),
+            "multi_cloud": lambda: asyncio.run(multi_cloud.MultiCloudScanner(target, output_dir=output_dir).scan_all()),
+            "search": lambda: search.search_cve(keyword=target),
             "monitor": lambda: {"status": "monitoring_configured"},
             "markdown": lambda: {"status": "report_generated"},
         }

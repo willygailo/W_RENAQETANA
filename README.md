@@ -401,7 +401,8 @@ bountykit recon iot -t example.com
 
 #### 📱 Mobile App Recon
 ```bash
-bountykit recon mobile -t example.com
+bountykit recon mobile --apk path/to/target.apk
+bountykit recon mobile --apk path/to/target.apk -o ./results
 ```
 
 #### 📜 Full Recon Pipeline
@@ -498,22 +499,25 @@ bountykit cve search --cpe "cpe:2.3:a:apache:log4j"
 
 #### 📡 Monitor CVEs
 ```bash
-bountykit cve monitor -k "apache" --webhook https://hooks.slack.com/xxx
+bountykit cve monitor -t apache
+bountykit cve monitor -t apache -n https://hooks.slack.com/xxx
 ```
 
 #### 💥 Find PoC Exploits
 ```bash
-bountykit cve pocs -k "CVE-2024-1234"
+bountykit cve pocs -c CVE-2024-1234
 ```
 
 #### 🔗 CVE Chain Analysis
 ```bash
-bountykit cve chain -k "CVE-2024-1234"
+bountykit cve chain -c CVE-2024-1234 -t https://target.com
+bountykit cve chain -c CVE-2024-0001 CVE-2024-0002 -t https://target.com
 ```
 
 #### 📋 Patch Diff Analysis
 ```bash
-bountykit cve patchdiff -k "CVE-2024-1234"
+bountykit cve patchdiff -r /path/to/repo --old v1.0 --new v2.0
+bountykit cve patchdiff -r https://github.com/user/repo --old abc123 --new def456
 ```
 </details>
 
@@ -529,7 +533,9 @@ bountykit cloud aws --metadata
 
 #### 🌐 Multi-Cloud Scanner
 ```bash
-bountykit advanced cloud -t https://example.com
+bountykit advanced cloud -p aws
+bountykit advanced cloud -p all
+bountykit advanced cloud -p aws --metadata-bypass --credentials
 ```
 </details>
 

@@ -1,5 +1,6 @@
 """Main CLI entry point for bountykit."""
 
+import asyncio
 import sys
 import click
 from rich.console import Console
@@ -116,11 +117,11 @@ def recon_js(ctx, target, output, depth, secrets, endpoints, dom_xss, run_all):
     _legal_check(ctx.obj["config"], target)
     console.print(f"\n[bold cyan]JS Analysis: {target}[/bold cyan]\n")
 
-    discover_js_files(target, output, max_depth=depth)
+    discover_js_files(target, output)
 
     do_all = run_all or (not secrets and not endpoints and not dom_xss)
     if do_all or secrets:
-        extract_secrets(target, output, max_depth=depth)
+        extract_secrets(target, output)
     if do_all or dom_xss:
         hunt_dom_xss(target, output)
     if do_all or endpoints:
@@ -153,9 +154,9 @@ def recon_crawl(ctx, target, output, depth, javascript):
     _legal_check(ctx.obj["config"], target)
     console.print(f"\n[bold cyan]Deep crawl: {target}[/bold cyan]\n")
     if javascript:
-        crawl_deep(target, output, depth=depth, katana=True, gospider=True)
+        crawl_deep(target, depth=depth, output_dir=output)
     else:
-        crawl_katana(target, output, depth=depth)
+        crawl_katana(target, output_dir=output, depth=depth)
 
 
 @recon.command("iot")
@@ -232,12 +233,13 @@ def scan():
 @click.option("--severity", "-s", default="medium,high,critical", help="Severity filter")
 @click.option("--rate-limit", "-r", default=50, type=int, help="Requests per second")
 @click.option("--templates", default=None, help="Path to custom nuclei templates directory")
+@click.option("--output", "-o", type=click.Path(), default="./results", help="Output directory")
 @click.pass_context
-def scan_nuclei(ctx, target, severity, rate_limit, templates):
+def scan_nuclei(ctx, target, severity, rate_limit, templates, output):
     """Scan target with Nuclei templates."""
     from bountykit.scan.web import run_nuclei
     _legal_check(ctx.obj["config"], target)
-    run_nuclei(target, severity=severity, rate_limit=rate_limit)
+    run_nuclei(target, severity=severity, rate_limit=rate_limit, output_dir=output)
 
 
 @scan.command("sqli")
@@ -245,48 +247,52 @@ def scan_nuclei(ctx, target, severity, rate_limit, templates):
 @click.option("--param", "-p", default=None, help="Specific parameter to test")
 @click.option("--dbs", is_flag=True, help="Enumerate databases")
 @click.option("--techniques", default=None, help="SQLMap techniques (BEUSTQ, or 'all')")
+@click.option("--output", "-o", type=click.Path(), default="./results", help="Output directory")
 @click.pass_context
-def scan_sqli(ctx, url, param, dbs, techniques):
+def scan_sqli(ctx, url, param, dbs, techniques, output):
     """Test for SQL injection vulnerabilities."""
     from bountykit.scan.sqli import run_sqlmap
     _legal_check(ctx.obj["config"], url)
-    run_sqlmap(url, param=param, dbs=dbs, techniques=techniques)
+    run_sqlmap(url, param=param, dbs=dbs, techniques=techniques, output_dir=output)
 
 
 @scan.command("xss")
 @click.option("--url", "-u", required=True, help="Target URL with parameter")
 @click.option("--param", "-p", default="q", help="Parameter to test")
 @click.option("--techniques", default=None, help="XSS techniques (all, dom, reflected, stored)")
+@click.option("--output", "-o", type=click.Path(), default="./results", help="Output directory")
 @click.pass_context
-def scan_xss(ctx, url, param, techniques):
+def scan_xss(ctx, url, param, techniques, output):
     """Test for XSS vulnerabilities."""
     from bountykit.scan.xss import run_dalfox
     _legal_check(ctx.obj["config"], url)
-    run_dalfox(url, param=param, techniques=techniques)
+    run_dalfox(url, param=param, techniques=techniques, output_dir=output)
 
 
 @scan.command("ssrf")
 @click.option("--target", "-t", required=True, help="Target URL")
 @click.option("--param", "-p", default="url", help="Parameter to test")
 @click.option("--techniques", default=None, help="SSRF techniques (dns_rebinding, ipv6_bypass, all)")
+@click.option("--output", "-o", type=click.Path(), default="./results", help="Output directory")
 @click.pass_context
-def scan_ssrf(ctx, target, param, techniques):
+def scan_ssrf(ctx, target, param, techniques, output):
     """Test for SSRF vulnerabilities."""
     from bountykit.scan.ssrf import test_ssrf
     _legal_check(ctx.obj["config"], target)
-    test_ssrf(target, param=param, techniques=techniques)
+    test_ssrf(target, param=param, techniques=techniques, output_dir=output)
 
 
 @scan.command("api")
 @click.option("--target", "-t", required=True, help="Target API endpoint")
 @click.option("--method", "-m", default="GET", help="HTTP method")
 @click.option("--techniques", default=None, help="API test techniques or test IDs (all)")
+@click.option("--output", "-o", type=click.Path(), default="./results", help="Output directory")
 @click.pass_context
-def scan_api(ctx, target, method, techniques):
+def scan_api(ctx, target, method, techniques, output):
     """Test API security (REST, GraphQL, OWASP Top 10)."""
     from bountykit.scan.api import test_api
     _legal_check(ctx.obj["config"], target)
-    test_api(target, method=method, tests=techniques)
+    test_api(target, method=method, tests=techniques, output_dir=output)
 
 
 @scan.command("deserialization")
@@ -408,10 +414,10 @@ def cve_search(ctx, keyword, year, severity, cpe):
     """Search CVE databases (NVD, Google, CISA)."""
     from bountykit.cve.search import search_cve
     results = search_cve(keyword, year=year, severity=severity)
-    if results:
-        console.print(f"\n[bold green]Found {len(results)} CVEs[/bold green]\n")
-        for r in results:
-            console.print(f"  [cyan]{r['id']}[/cyan] — {r['description'][:80]}...")
+    if results.findings:
+        console.print(f"\n[bold green]Found {len(results.findings)} CVEs[/bold green]\n")
+        for cve in results.findings:
+            console.print(f"  [cyan]{cve.cve_id}[/cyan] — {cve.description[:80]}...")
     else:
         console.print("[yellow]No CVEs found matching your criteria.[/yellow]")
 
@@ -454,8 +460,8 @@ def cve_chain(ctx, cve_ids, target, output):
     if len(cve_ids) < 2:
         console.print("[red]Provide at least 2 CVE IDs to chain.[/red]")
         return
-    results = analyze_chains(list(cve_ids), target, output)
-    build_attack_path(list(cve_ids), target, output)
+    results = analyze_chains(list(cve_ids), output_dir=output)
+    build_attack_path(target, list(cve_ids), output_dir=output)
 
 
 @cve.command("patchdiff")
@@ -466,8 +472,8 @@ def cve_chain(ctx, cve_ids, target, output):
 @click.pass_context
 def cve_patchdiff(ctx, repo, old, new, output):
     """Analyze patch diffs for vulnerability introduction."""
-    from bountykit.cve.patchdiff import analyze_commits, analyze_git_diff
-    analyze_commits(repo, old, new, output)
+    from bountykit.cve.patchdiff import analyze_git_diff
+    analyze_git_diff(repo, commit1=old, commit2=new, output_dir=output)
 
 
 # =============================================================================
@@ -513,8 +519,8 @@ def advanced_llm(ctx, target, model, attack, output):
     from bountykit.scan.llm import LLMTester
     _legal_check(ctx.obj["config"], target)
     console.print(f"\n[bold cyan]LLM/AI Security Testing: {target}[/bold cyan]\n")
-    tester = LLMTester(target, model=model, output_dir=output)
-    tester.run_all_attacks()
+    tester = LLMTester(target)
+    asyncio.run(tester.test_all())
 
 
 @advanced.command("supplychain")
@@ -529,8 +535,8 @@ def advanced_supplychain(ctx, target, attack, output):
     from bountykit.scan.supply_chain import SupplyChainScanner
     _legal_check(ctx.obj["config"], target)
     console.print(f"\n[bold cyan]Supply Chain Security: {target}[/bold cyan]\n")
-    scanner = SupplyChainScanner(target, output_dir=output)
-    scanner.run_all_checks()
+    scanner = SupplyChainScanner(target_path=target)
+    asyncio.run(scanner.scan_project())
 
 
 @advanced.command("race")
@@ -544,8 +550,8 @@ def advanced_race(ctx, target, param, threads, output):
     from bountykit.scan.race_condition import RaceConditionTester
     _legal_check(ctx.obj["config"], target)
     console.print(f"\n[bold cyan]Race Condition Testing: {target}[/bold cyan]\n")
-    tester = RaceConditionTester(target, threads=threads, output_dir=output)
-    tester.run_all_tests(param)
+    tester = RaceConditionTester(target, max_concurrent=threads)
+    asyncio.run(tester.test_all())
 
 
 @advanced.command("smuggle")
@@ -560,8 +566,8 @@ def advanced_smuggle(ctx, target, attack, output):
     from bountykit.scan.smuggling import HTTPSmugglingTester
     _legal_check(ctx.obj["config"], target)
     console.print(f"\n[bold cyan]HTTP Smuggling & Cache Poisoning: {target}[/bold cyan]\n")
-    tester = HTTPSmugglingTester(target, output_dir=output)
-    tester.run_all_tests()
+    tester = HTTPSmugglingTester(target)
+    asyncio.run(tester.test_all())
 
 
 @advanced.command("ssti")
@@ -574,8 +580,8 @@ def advanced_ssti(ctx, target, engine, output):
     from bountykit.scan.ssti import SSTITester
     _legal_check(ctx.obj["config"], target)
     console.print(f"\n[bold cyan]SSTI Detection: {target}[/bold cyan]\n")
-    tester = SSTITester(target, engine=engine, output_dir=output)
-    tester.run_all_tests()
+    tester = SSTITester(target)
+    asyncio.run(tester.test_all())
 
 
 @advanced.command("cloud")
@@ -589,13 +595,9 @@ def advanced_cloud(ctx, provider, metadata_bypass, credentials, output):
     from bountykit.cloud.multi_cloud import MultiCloudScanner
     _legal_check(ctx.obj["config"], provider)
     console.print(f"\n[bold cyan]Multi-Cloud Security Testing: {provider}[/bold cyan]\n")
-    scanner = MultiCloudScanner(provider=provider, output_dir=output)
-    if metadata_bypass:
-        scanner.test_metadata_bypass()
-    elif credentials:
-        scanner.test_credential_theft()
-    else:
-        scanner.run_all_tests()
+    providers_list = ["aws", "gcp", "azure"] if provider == "all" else [provider]
+    scanner = MultiCloudScanner(target=provider, providers=providers_list)
+    asyncio.run(scanner.scan_all())
 
 
 # =============================================================================

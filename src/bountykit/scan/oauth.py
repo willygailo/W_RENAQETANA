@@ -124,7 +124,7 @@ class OAuthScanner:
             timeout=timeout,
             verify=verify_ssl,
             follow_redirects=True,
-            http2=True,
+            http2=False,
         )
         os.makedirs(output_dir, exist_ok=True)
 
