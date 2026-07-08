@@ -44,6 +44,7 @@ PHASE_DEPENDENCIES: dict[str, list[str]] = {
     "cloud": ["recon"],
     "cloud_misconfig": ["recon"],
     "supply_chain": ["scan"],
+    "websocket": [],
     "report": [],  # report depends on all non-report phases (handled specially)
 }
 
@@ -137,7 +138,7 @@ def _get_phases(scan_type: str) -> list:
         {
             "name": "advanced",
             "description": "Advanced Testing",
-            "tools": ["deserialization", "graphql", "oauth", "takeover", "ssti", "smuggle", "race_condition"],
+            "tools": ["deserialization", "graphql", "oauth", "takeover", "ssti", "smuggle", "race_condition", "websocket"],
             "priority": 4,
         },
         {
@@ -359,6 +360,7 @@ def _execute_phase(target: str, phase: dict, output_dir: str) -> dict:
         from bountykit.scan import deserialization, graphql, oauth, takeover
         from bountykit.scan import headers, waf
         from bountykit.scan import ssti, smuggling, race_condition, llm, supply_chain
+        from bountykit.scan import websocket
         from bountykit.scan import cloud_misconfig
         from bountykit.cve import search, monitor
         from bountykit.cloud import aws, multi_cloud
@@ -387,6 +389,7 @@ def _execute_phase(target: str, phase: dict, output_dir: str) -> dict:
             "race_condition": lambda: asyncio.run(race_condition.RaceConditionTester(target).test_all()),
             "llm": lambda: asyncio.run(llm.LLMTester(target).test_all()),
             "supply_chain": lambda: asyncio.run(supply_chain.SupplyChainScanner(target_path=target).scan_project()),
+            "websocket": lambda: asyncio.run(websocket.WebSocketScanner(target).run_full_scan()),
             "aws": lambda: aws.test_aws(bucket=None, test_metadata=True, output_dir=str(phase_output)),
             "multi_cloud": lambda: asyncio.run(multi_cloud.MultiCloudScanner(target=target).scan_all()),
             "cloud_misconfig": lambda: asyncio.run(cloud_misconfig.CloudMisconfigurationScanner(target=target).scan_all()),

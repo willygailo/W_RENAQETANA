@@ -42,7 +42,7 @@
 <td width="50%" valign="top">
 
 ### 🛡️ Security
-- **19 scanner modules**
+- **20 scanner modules**
 - Network, Cloud, LLM, Supply Chain
 - SSTI, Race Conditions, WAF Bypass
 
@@ -193,6 +193,7 @@ bountykit scan race --target https://example.com
 bountykit scan waf --target https://example.com
 bountykit scan takeover --target https://example.com
 bountykit scan llm --target https://example.com
+bountykit scan websocket --target https://example.com
 ```
 </details>
 
@@ -290,6 +291,10 @@ docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/result
 docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/results" \
   bountykit scan supply-chain --target https://example.com
 
+# WebSocket — CSWSH, injection, DoS, auth bypass, subprotocol fuzzing
+docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/results" \
+  bountykit scan websocket --target https://example.com
+
 # LLM/AI — prompt injection, RAG poisoning, tool hijack
 docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/results" \
   bountykit scan llm --target https://example.com
@@ -359,6 +364,7 @@ docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/result
 | `scan waf` | WAF detection + 15 bypass techniques |
 | `scan supply-chain` | Supply chain — malicious packages, typosquatting, GHA hijack |
 | `scan llm` | LLM/AI security — prompt injection, RAG poisoning, tool hijack |
+| `scan websocket` | WebSocket security — CSWSH, injection, DoS, auth bypass, subprotocol fuzzing |
 
 </td></tr>
 <tr><td colspan="2">
@@ -430,6 +436,7 @@ docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/result
 | `advanced smuggle` | HTTP smuggling & cache poisoning |
 | `advanced ssti` | SSTI — 20+ template engines |
 | `advanced cloud` | Multi-cloud security — AWS, GCP, Azure |
+| `advanced websocket` | WebSocket security — CSWSH, injection, DoS, auth bypass |
 
 ---
 
@@ -534,6 +541,7 @@ bountykit/
 |---------|---------|
 | `networkx` | CVE chain graph *(optional)* |
 | `h2` | HTTP/2 smuggling *(optional)* |
+| `websockets` | WebSocket security testing *(optional)* |
 
 </td></tr>
 </table>

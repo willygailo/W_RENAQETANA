@@ -550,6 +550,30 @@ def scan_network(ctx, target, output, full):
     _scan_network(target, output)
 
 
+@scan.command("websocket")
+@click.option("--target", "-t", required=True, help="Target URL with WebSocket endpoints")
+@click.option("--output", "-o", type=click.Path(), default="./results", help="Output directory")
+@click.pass_context
+def scan_websocket(ctx, target, output):
+    """WebSocket security testing (CSWSH, injection, DoS, auth bypass, subprotocols)."""
+    from bountykit.scan.websocket import WebSocketScanner
+    _legal_check(ctx.obj["config"], target)
+    console.print(f"\n[bold cyan]WebSocket Security: {target}[/bold cyan]\n")
+    scanner = WebSocketScanner(target, output_dir=output)
+    result = scanner.run_full_scan()
+    table = Table(title="WebSocket Security Findings", show_lines=True)
+    table.add_column("Severity", style="bold red", width=10)
+    table.add_column("Type", style="cyan", width=20)
+    table.add_column("Title", style="white")
+    for f in result.findings:
+        color = {"critical": "red", "high": "bright_red", "medium": "yellow", "low": "green"}.get(f.severity, "white")
+        table.add_row(f"[{color}]{f.severity.upper()}[/{color}]", f.finding_type, f.test_name)
+    if result.findings:
+        console.print(table)
+    console.print(f"\n[green]✓ {len(result.findings)} findings | "
+                  f"{result.endpoints_discovered} endpoints discovered[/green]\n")
+
+
 @scan.command("template")
 @click.option("--vuln", "-v", required=True, type=click.Choice(
     ["sqli", "xss", "idor", "ssrf", "lfi", "rce"],
