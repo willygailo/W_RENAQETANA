@@ -553,25 +553,80 @@ def scan_network(ctx, target, output, full):
 @scan.command("websocket")
 @click.option("--target", "-t", required=True, help="Target URL with WebSocket endpoints")
 @click.option("--output", "-o", type=click.Path(), default="./results", help="Output directory")
+@click.option("--deep", is_flag=True, default=False,
+              help="Enable deep mode: subdomain bruteforce + TLD expansion + full JS crawl")
+@click.option("--timeout", default=10, show_default=True,
+              help="Per-request / WS handshake timeout in seconds")
+@click.option("--no-tld", "no_tld", is_flag=True, default=False,
+              help="Skip TLD variant probing (faster, single-domain only)")
 @click.pass_context
-def scan_websocket(ctx, target, output):
-    """WebSocket security testing (CSWSH, injection, DoS, auth bypass, subprotocols)."""
+def scan_websocket(ctx, target, output, deep, timeout, no_tld):
+    """WebSocket security testing (CSWSH, injection, DoS, auth bypass, subprotocols).
+
+    Real-world discovery engine:
+    \b
+    Phase 1  Mine primary page HTML + linked JS files for ws(s):// URLs
+    Phase 2  Subdomain prefix bruteforce (api, ws, realtime, chat, …)
+    Phase 3  TLD variant probing (.com .org .ph .gov .sg …)
+    Phase 4  Async concurrent WS handshake probe on all live origins
+    """
     from bountykit.scan.websocket import WebSocketScanner
     _legal_check(ctx.obj["config"], target)
-    console.print(f"\n[bold cyan]WebSocket Security: {target}[/bold cyan]\n")
-    scanner = WebSocketScanner(target, output_dir=output)
-    result = scanner.run_full_scan()
-    table = Table(title="WebSocket Security Findings", show_lines=True)
-    table.add_column("Severity", style="bold red", width=10)
-    table.add_column("Type", style="cyan", width=20)
-    table.add_column("Title", style="white")
-    for f in result.findings:
-        color = {"critical": "red", "high": "bright_red", "medium": "yellow", "low": "green"}.get(f.severity, "white")
-        table.add_row(f"[{color}]{f.severity.upper()}[/{color}]", f.finding_type, f.test_name)
+
+    console.print(f"\n[bold cyan]WebSocket Security: {target}[/bold cyan]")
+    if deep:
+        console.print("[yellow]⚡ Deep mode: subdomain + TLD expansion + JS crawl enabled[/yellow]")
+    if no_tld:
+        console.print("[dim]  TLD variant probing disabled[/dim]")
+    console.print()
+
+    scanner = WebSocketScanner(target, output_dir=output, timeout=timeout)
+
+    # Patch flags onto scanner so discovery respects CLI options
+    scanner._deep_mode = deep
+    scanner._skip_tld = no_tld
+
+    with console.status("[bold green]Running discovery + security probes…", spinner="dots"):
+        result = scanner.run_full_scan()
+
+    # ── Endpoints discovered ──────────────────────────────────────────────────
+    if result.endpoints_discovered > 0:
+        ep_table = Table(title="Discovered WebSocket Endpoints", show_lines=True)
+        ep_table.add_column("#", style="dim", width=4)
+        ep_table.add_column("Endpoint", style="bold cyan")
+        for i, ep in enumerate(result.discovered_endpoints, 1):
+            ep_table.add_row(str(i), ep)
+        console.print(ep_table)
+        console.print()
+
+    # ── Security findings ─────────────────────────────────────────────────────
     if result.findings:
-        console.print(table)
-    console.print(f"\n[green]✓ {len(result.findings)} findings | "
-                  f"{result.endpoints_discovered} endpoints discovered[/green]\n")
+        find_table = Table(title="WebSocket Security Findings", show_lines=True)
+        find_table.add_column("Severity", style="bold red", width=10)
+        find_table.add_column("Type", style="cyan", width=20)
+        find_table.add_column("Title", style="white")
+        find_table.add_column("Evidence", style="dim", max_width=50)
+        sev_color = {"critical": "red", "high": "bright_red",
+                     "medium": "yellow", "low": "green"}
+        for f in result.findings:
+            color = sev_color.get(f.severity, "white")
+            find_table.add_row(
+                f"[{color}]{f.severity.upper()}[/{color}]",
+                f.finding_type,
+                f.test_name,
+                (f.evidence[:48] + "…") if len(f.evidence) > 48 else f.evidence,
+            )
+        console.print(find_table)
+    else:
+        console.print("[dim]No security findings.[/dim]")
+
+    # ── Summary line ─────────────────────────────────────────────────────────
+    console.print(
+        f"\n[green]✓ {len(result.findings)} findings | "
+        f"{result.endpoints_discovered} endpoints discovered | "
+        f"scan took {result.scan_duration:.1f}s[/green]\n"
+    )
+
 
 
 @scan.command("template")

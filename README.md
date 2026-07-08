@@ -193,7 +193,18 @@ bountykit scan race --target https://example.com
 bountykit scan waf --target https://example.com
 bountykit scan takeover --target https://example.com
 bountykit scan llm --target https://example.com
+
+# Fast default — Phase 1 + Phase 4 only (what you were running)
 bountykit scan websocket --target https://example.com
+
+# Full real-world attack surface
+bountykit scan websocket --target https://example.ph --deep
+
+# Deep but skip TLD variants (just subdomain brute)
+bountykit scan websocket --target https://example.com --deep --no-tld
+
+# Tune timeout for slow targets
+bountykit scan websocket --target https://example.gov --deep --timeout 15
 ```
 </details>
 

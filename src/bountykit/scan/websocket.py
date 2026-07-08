@@ -2,6 +2,9 @@
 
 Covers 2026 WebSocket security testing:
 - WebSocket endpoint discovery (HTML, JS, known patterns)
+- Multi-TLD / subdomain expansion for real-world target adaptation
+- Deep JS crawler (follows script src tags across pages)
+- CDN / API edge cluster probing
 - SSL/TLS security assessment
 - Origin bypass / Cross-Site WebSocket Hijacking (CSWSH)
 - Message injection (SQLi, XSS, NoSQL, command injection)
@@ -19,8 +22,8 @@ import ssl
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
-from urllib.parse import urlparse, urljoin
+from typing import Optional, List, Set
+from urllib.parse import urlparse, urljoin, urlunparse
 
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -37,20 +40,93 @@ except ImportError:
     HAS_WEBSOCKETS = False
     logger.warning("websockets library not installed. WebSocket scanner disabled. Install with: pip install websockets")
 
+# ─── Real-World TLD Expansion ─────────────────────────────────────────────────
+# When a user targets foo.com we also probe foo.org, foo.net, foo.gov, foo.ph, etc.
+# This mirrors what real attackers do: orgs often share WS infra across TLDs.
+
+REAL_WORLD_TLDS = [
+    ".com", ".org", ".net", ".io", ".co",
+    ".gov", ".edu", ".mil",                          # US public sector
+    ".ph", ".sg", ".id", ".my", ".th", ".vn",        # Southeast Asia
+    ".uk", ".de", ".fr", ".nl", ".es", ".it",        # Europe
+    ".ca", ".com.au", ".com.br",                     # Americas / Pacific
+    ".cn", ".jp", ".kr", ".in",                      # Asia-Pacific
+    ".ru", ".ua",                                    # Eastern Europe
+    ".co.uk", ".co.jp", ".com.ph", ".gov.ph",        # CC+SLD combos
+]
+
+# ─── High-Value Subdomain Prefixes ───────────────────────────────────────────
+# Commonly host WS / realtime / API services in enterprise and SaaS stacks.
+
+WS_SUBDOMAIN_PREFIXES = [
+    # API & Gateway
+    "api", "api2", "api-v2", "api-v3", "gateway", "gw",
+    # Realtime / Push / Stream
+    "ws", "wss", "realtime", "rt", "live", "stream", "push",
+    "notify", "notifications", "events", "feed",
+    # Chat / Collab
+    "chat", "messaging", "socket", "io",
+    # CDN / Edge
+    "cdn", "edge", "static", "assets",
+    # Internal / Admin
+    "admin", "internal", "mgmt", "dashboard", "panel",
+    "monitor", "metrics", "status", "health",
+    # Platform prefixes
+    "app", "apps", "portal", "platform", "service",
+    # Regional / Multi-tenant
+    "us", "eu", "ap", "dev", "staging", "prod", "beta",
+    # Support
+    "support", "help", "kb",
+]
+
 # ─── Common WebSocket Endpoint Patterns ───────────────────────────────────────
+# Expanded to cover 2026 real-world stacks: SignalR, Livekit, Phoenix Channels, etc.
 
 WS_ENDPOINT_PATTERNS = [
-    "/ws", "/wss", "/websocket", "/socket", "/ws/v1", "/ws/v2",
-    "/socket.io", "/sockjs", "/stomp", "/mqtt",
+    # Classic
+    "/ws", "/wss", "/websocket", "/socket", "/ws/v1", "/ws/v2", "/ws/v3",
+    # SocketIO / SockJS
+    "/socket.io", "/socket.io/", "/sockjs", "/sockjs-node",
+    # STOMP / MQTT / AMQP over WS
+    "/stomp", "/mqtt", "/amqp",
+    # GraphQL Subscriptions
+    "/graphql", "/subscriptions", "/graphql/subscriptions",
+    "/api/graphql", "/graphql-ws",
+    # Rails ActionCable
+    "/cable", "/action-cable",
+    # Phoenix / Elixir Channels
+    "/socket", "/socket/websocket", "/live", "/live/websocket",
+    # ASP.NET SignalR
+    "/signalr", "/signalr/hubs", "/signalr/negotiate",
+    "/hubs", "/hubs/chat",
+    # Real-time feeds
+    "/live", "/events", "/stream", "/feed", "/push",
+    "/realtime", "/rt",
+    # API namespaced
+    "/api/ws", "/api/v1/ws", "/api/v2/ws",
+    "/api/socket", "/api/events", "/api/stream",
+    # Notifications
     "/ws/chat", "/ws/notifications", "/ws/realtime",
-    "/api/ws", "/graphql", "/subscriptions",
-    "/cable", "/live", "/events", "/stream",
+    "/ws/events", "/ws/feed", "/ws/broadcast",
+    # Version-prefixed
+    "/v1/ws", "/v2/ws", "/v3/ws",
+    # LiveKit / Agora
+    "/rtc", "/webrtc", "/livekit",
+    # Admin
+    "/admin/ws", "/admin/live",
 ]
 
 WS_JS_PATTERNS = [
-    r'new WebSocket\([\'\"](.+?)[\'\"]',
-    r'wss?://[^\s\"\'<>]+',
-    r'WebSocket\([\'\"](.+?)[\'\"]',
+    # Standard new WebSocket(...)
+    r'new\s+WebSocket\s*\(\s*[\'"]([^\'"]+)[\'"]',
+    r'new\s+WebSocket\s*\(\s*`([^`]+)`',
+    # Direct ws(s):// URIs
+    r'[\'"`](wss?://[^\s\'"`<>{}|^\[\]]+)[\'"`]',
+    # Variable assignment: url = 'wss://...' or endpoint: 'wss://...'
+    r'(?:url|endpoint|wsUrl|socketUrl|wsEndpoint|host)\s*[=:]\s*[\'"`](wss?://[^\s\'"`<>{}]+)[\'"`]',
+    # Socket.IO / SockJS connect calls
+    r'io\.connect\s*\(\s*[\'"]([^\'"]+)[\'"]',
+    r'SockJS\s*\(\s*[\'"]([^\'"]+)[\'"]',
 ]
 
 # ─── Injection Payloads ──────────────────────────────────────────────────────
@@ -112,6 +188,7 @@ class WebSocketResult:
     target: str
     findings: list[WebSocketFinding] = field(default_factory=list)
     endpoints_discovered: int = 0
+    discovered_endpoints: list[str] = field(default_factory=list)  # cached list
     insecure_ws_enabled: bool = False
     origin_bypass_possible: bool = False
     auth_bypass_possible: bool = False
@@ -135,6 +212,9 @@ class WebSocketScanner:
         self.timeout = timeout
         self.verify_ssl = verify_ssl
         self.findings: list[WebSocketFinding] = []
+        # Discovery mode flags — CLI may override after init
+        self._deep_mode: bool = False   # enables subdomain + TLD expansion
+        self._skip_tld: bool = False    # disables TLD variant probing
         self.session = httpx.Client(
             timeout=timeout,
             verify=verify_ssl,
@@ -148,55 +228,201 @@ class WebSocketScanner:
         """Send HTTP request with retry."""
         return self.session.request(method, url, **kwargs)
 
+    # ──────────────────────────────────────────────────────────────────────────
+    # Real-world discovery helpers
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _extract_base_domain(self, parsed) -> str:
+        """Strip sub-domains: api.foo.com → foo.com."""
+        parts = parsed.hostname.split(".")
+        # Handle cc+SLD like .co.uk / .com.ph
+        if len(parts) >= 3 and len(parts[-2]) <= 3:
+            return ".".join(parts[-3:])
+        return ".".join(parts[-2:])
+
+    def _tld_variants(self, parsed) -> List[str]:
+        """Build same-name targets across common TLDs."""
+        base = self._extract_base_domain(parsed)
+        stem = base.rsplit(".", 1)[0]  # strip existing TLD
+        variants = []
+        for tld in REAL_WORLD_TLDS:
+            candidate = f"{parsed.scheme}://{stem}{tld}"
+            if candidate.rstrip("/") != self.target.rstrip("/"):
+                variants.append(candidate)
+        return variants
+
+    def _subdomain_targets(self, parsed) -> List[str]:
+        """Expand subdomain prefix wordlist against base domain."""
+        base = self._extract_base_domain(parsed)
+        return [
+            f"{parsed.scheme}://{pfx}.{base}"
+            for pfx in WS_SUBDOMAIN_PREFIXES
+        ]
+
+    def _fetch_page_safe(self, url: str) -> Optional[str]:
+        """Fetch page body, silently swallow any error."""
+        try:
+            r = self.session.get(url, timeout=6, follow_redirects=True)
+            return r.text
+        except Exception:
+            return None
+
+    def _js_links_in_page(self, base_url: str, body: str) -> List[str]:
+        """Extract absolute JS src URLs from an HTML page body."""
+        srcs = re.findall(r'<script[^>]+src=[\'"]([^\'"]+)[\'"]', body, re.IGNORECASE)
+        absolute = []
+        for s in srcs:
+            if s.startswith("http"):
+                absolute.append(s)
+            elif s.startswith("//"):
+                scheme = urlparse(base_url).scheme
+                absolute.append(f"{scheme}:{s}")
+            elif s.startswith("/"):
+                p = urlparse(base_url)
+                absolute.append(f"{p.scheme}://{p.netloc}{s}")
+        return absolute
+
+    def _mine_ws_from_text(self, text: str, base_origin: str) -> Set[str]:
+        """Run all WS regex patterns against arbitrary text, return ws(s):// URLs."""
+        found: Set[str] = set()
+        parsed_base = urlparse(base_origin)
+        for pattern in WS_JS_PATTERNS:
+            for m in re.findall(pattern, text, re.IGNORECASE | re.DOTALL):
+                m = m.strip()
+                if m.startswith("wss://") or m.startswith("ws://"):
+                    found.add(m)
+                elif m.startswith("/"):
+                    scheme = "wss" if parsed_base.scheme == "https" else "ws"
+                    found.add(f"{scheme}://{parsed_base.netloc}{m}")
+                elif m.startswith("http"):
+                    # Convert http(s) to ws(s)
+                    found.add(re.sub(r'^https?', lambda x: 'wss' if 'https' in x.group() else 'ws', m))
+        return found
+
+    def _crawl_js_for_ws(self, base_url: str, body: str) -> Set[str]:
+        """Fetch all linked JS files and mine them for WS endpoints (1 hop deep)."""
+        ws_found: Set[str] = set()
+        js_urls = self._js_links_in_page(base_url, body)
+        for js_url in js_urls[:20]:   # cap at 20 JS files to stay sane
+            logger.debug(f"[JS crawl] {js_url}")
+            js_body = self._fetch_page_safe(js_url)
+            if js_body:
+                ws_found |= self._mine_ws_from_text(js_body, base_url)
+        return ws_found
+
+    async def _probe_ws_endpoints_async(
+        self, candidates: List[str], timeout: int = 5
+    ) -> Set[str]:
+        """Async-concurrent probe: attempt WS handshake on every candidate URL."""
+        confirmed: Set[str] = set()
+
+        async def _try(url: str):
+            try:
+                async with ws_connect(
+                    url,
+                    open_timeout=timeout,
+                    close_timeout=2,
+                    # some servers reject if no valid path is probed
+                    extra_headers={
+                        "User-Agent": "Mozilla/5.0 (compatible; BountyKit/0.2)"
+                    },
+                ) as _ws:
+                    confirmed.add(url)
+                    logger.info(f"[WS confirmed] {url}")
+            except Exception as exc:
+                # 101 Switching Protocols happened but library errored after → still open
+                if "101" in str(exc) or "switching" in str(exc).lower():
+                    confirmed.add(url)
+                    logger.info(f"[WS 101] {url}")
+
+        await asyncio.gather(*[_try(u) for u in candidates])
+        return confirmed
+
+    def _build_ws_candidates(self, parsed) -> List[str]:
+        """Build the full candidate WS URL list for a single HTTP origin."""
+        scheme_ws = "wss" if parsed.scheme == "https" else "ws"
+        base = f"{scheme_ws}://{parsed.netloc}"
+        return [f"{base}{path}" for path in WS_ENDPOINT_PATTERNS]
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Main discovery — real-world multi-TLD edition
+    # ──────────────────────────────────────────────────────────────────────────
+
     def discover_endpoints(self) -> list[str]:
-        """Discover WebSocket endpoints from target page and common patterns."""
+        """Discover WebSocket endpoints using multi-TLD expansion, subdomain
+        bruteforce, deep JS crawling, and concurrent async probing."""
         logger.info(f"Discovering WebSocket endpoints on {self.target}")
 
-        endpoints: set[str] = set()
-
-        # 1. Check page HTML/JS for WebSocket URLs
-        try:
-            resp = self._send_request(self.target)
-            body = resp.text
-
-            # Pattern match from JS
-            for pattern in WS_JS_PATTERNS:
-                matches = re.findall(pattern, body, re.IGNORECASE)
-                for m in matches:
-                    if m.startswith("ws") or m.startswith("wss"):
-                        endpoints.add(m)
-                    elif m.startswith("/"):
-                        parsed = urlparse(self.target)
-                        endpoints.add(f"wss://{parsed.netloc}{m}")
-
-            # Check Upgrade header in response
-            upgrade = resp.headers.get("upgrade", "").lower()
-            if "websocket" in upgrade:
-                parsed = urlparse(self.target)
-                ws_scheme = "wss" if parsed.scheme == "https" else "ws"
-                endpoints.add(f"{ws_scheme}://{parsed.netloc}{parsed.path}")
-
-        except Exception as e:
-            logger.debug(f"Page fetch failed: {e}")
-
-        # 2. Probe common WebSocket endpoint paths
+        found: Set[str] = set()
         parsed = urlparse(self.target)
-        base_ws = f"wss://{parsed.netloc}" if parsed.scheme == "https" else f"ws://{parsed.netloc}"
 
-        for path in WS_ENDPOINT_PATTERNS:
-            ws_url = f"{base_ws}{path}"
-            if HAS_WEBSOCKETS:
+        # ── Phase 1: Mine primary target HTML + linked JS ─────────────────────
+        primary_body = self._fetch_page_safe(self.target)
+        if primary_body:
+            found |= self._mine_ws_from_text(primary_body, self.target)
+            found |= self._crawl_js_for_ws(self.target, primary_body)
+
+            # Upgrade header hint (some servers advertise WS on HTTP GET)
+            try:
+                r = self.session.get(self.target, timeout=6)
+                if "websocket" in r.headers.get("upgrade", "").lower():
+                    scheme = "wss" if parsed.scheme == "https" else "ws"
+                    found.add(f"{scheme}://{parsed.netloc}{parsed.path or '/ws'}")
+            except Exception:
+                pass
+
+        # ── Phase 2: Subdomain prefix expansion (deep mode only) ─────────────
+        alive_origins = [self.target]  # primary always included
+
+        if self._deep_mode:
+            for origin in self._subdomain_targets(parsed):
+                body = self._fetch_page_safe(origin)
+                if body is not None:  # origin is alive → mine it
+                    alive_origins.append(origin)
+                    found |= self._mine_ws_from_text(body, origin)
+                    found |= self._crawl_js_for_ws(origin, body)
+                    logger.info(f"[Subdomain alive] {origin}")
+        else:
+            logger.debug("Phase 2 skipped (use --deep to enable subdomain bruteforce)")
+
+        # ── Phase 3: TLD variant probing (deep + not --no-tld) ────────────────
+        if self._deep_mode and not self._skip_tld:
+            for tld_origin in self._tld_variants(parsed):
+                body = self._fetch_page_safe(tld_origin)
+                if body is not None:
+                    alive_origins.append(tld_origin)
+                    found |= self._mine_ws_from_text(body, tld_origin)
+                    logger.info(f"[TLD variant alive] {tld_origin}")
+        else:
+            logger.debug("Phase 3 skipped (use --deep without --no-tld to enable TLD expansion)")
+
+        # ── Phase 4: Async-concurrent WS handshake probe on all live origins ──
+        if HAS_WEBSOCKETS:
+            all_candidates: List[str] = []
+            for origin in alive_origins:
                 try:
-                    conn = asyncio.run(
-                        ws_connect(ws_url, timeout=self.timeout, open_timeout=5)
-                    )
-                    asyncio.run(conn.close())
-                    endpoints.add(ws_url)
-                    logger.info(f"WS endpoint confirmed: {ws_url}")
+                    o_parsed = urlparse(origin)
+                    all_candidates.extend(self._build_ws_candidates(o_parsed))
                 except Exception:
                     pass
 
-        return sorted(endpoints)
+            # Strip already JS-mined URLs; no point doing WS handshake twice
+            all_candidates = list(set(all_candidates) - found)
+
+            logger.info(
+                f"[Phase 4] Probing {len(all_candidates)} candidate endpoints "
+                f"across {len(alive_origins)} origin(s)"
+            )
+
+            try:
+                confirmed = asyncio.run(
+                    self._probe_ws_endpoints_async(all_candidates, timeout=5)
+                )
+                found |= confirmed
+            except Exception as exc:
+                logger.debug(f"Async probe error: {exc}")
+
+        return sorted(found)
 
     def test_connection(self, endpoint: str) -> WebSocketFinding:
         """Test basic WebSocket connection and handshake."""
@@ -804,6 +1030,7 @@ class WebSocketScanner:
         # 1. Discover endpoints
         endpoints = self.discover_endpoints()
         result.endpoints_discovered = len(endpoints)
+        result.discovered_endpoints = endpoints   # cache for CLI display
 
         if not endpoints:
             result.errors.append("No WebSocket endpoints discovered.")
