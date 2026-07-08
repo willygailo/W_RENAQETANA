@@ -129,8 +129,9 @@ sudo systemctl status docker
 docker build -t bountykit .
 docker run --rm bountykit version
 
-# Scan with Docker
-docker run --rm bountykit scan xss --url https://example.com
+# Scan with Docker (results persist to ./results on your host)
+docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/results" \
+  bountykit scan xss --url https://example.com
 ```
 
 > 💡 **Tip:** Add your user to the `docker` group to avoid `sudo`:
@@ -263,43 +264,54 @@ bountykit check-updates        # Check PyPI for new version
 <details>
 <summary><b>🐳 Docker — Advanced Attack Tactics</b></summary>
 
+> 💡 **Why the extra flags?** `--rm` deletes the container (and any results inside it) when done. `-v "$PWD/results:/app/results"` mounts your local folder so JSON reports survive. `-u "$(id -u):$(id -g)"` writes files as your user (not root), and `-e HOME=/tmp` gives the tool a writable place for its config — without it you get `PermissionError: /.bountykit`.
+
 ```bash
 # Build the image
 docker build -t bountykit .
 
 # SSTI — 20+ engines, polyglot probes, RCE chains
-docker run --rm bountykit scan ssti --target https://example.com
+docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/results" \
+  bountykit scan ssti --target https://example.com
 
 # HTTP smuggling — CL.TE, TE.CL, cache poisoning
-docker run --rm bountykit scan smuggle --target https://example.com
+docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/results" \
+  bountykit scan smuggle --target https://example.com
 
 # Race conditions — H2 single-packet, JWT race
-docker run --rm bountykit scan race --target https://example.com
+docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/results" \
+  bountykit scan race --target https://example.com
 
 # WAF detection + 15 bypass techniques
-docker run --rm bountykit scan waf --target https://example.com
+docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/results" \
+  bountykit scan waf --target https://example.com
 
 # Supply chain — malicious packages, typosquatting, GHA hijack
-docker run --rm bountykit scan supply-chain --target https://example.com
+docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/results" \
+  bountykit scan supply-chain --target https://example.com
 
 # LLM/AI — prompt injection, RAG poisoning, tool hijack
-docker run --rm bountykit scan llm --target https://example.com
+docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/results" \
+  bountykit scan llm --target https://example.com
 
 # Advanced module: race condition & business logic
-docker run --rm bountykit advanced race --target https://example.com
+docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/results" \
+  bountykit advanced race --target https://example.com
 
 # Advanced module: multi-cloud (AWS/GCP/Azure)
-docker run --rm bountykit advanced cloud -p aws
+docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/results" \
+  bountykit advanced cloud -p aws
 
 # Advanced module: HTTP smuggling & cache poisoning
-docker run --rm bountykit advanced smuggle --target https://example.com
+docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/results" \
+  bountykit advanced smuggle --target https://example.com
 
 # Full advanced pipeline (no parallelism)
-docker run --rm -v "$PWD/results:/app/results" \
+docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/results" \
   bountykit pipeline --target https://example.com --scan-type advanced --no-parallel
 
 # Generate HTML report from results
-docker run --rm -v "$PWD/results:/app/results" \
+docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/results" \
   bountykit report --format html --input /app/results --output /app/results/report.html
 ```
 </details>
