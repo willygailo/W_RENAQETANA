@@ -160,8 +160,8 @@ bountykit pipeline --target https://example.com --scan-type full
 # 🎯 Scan for specific vuln
 bountykit scan ssti --target https://example.com
 
-# 🔎 Search CVEs
-bountykit cve search --keyword "nginx" --severity CRITICAL
+# 🔎 Monitor CVEs for a technology
+bountykit cve monitor --tech "nginx"
 
 # ☁️ Check cloud misconfig
 bountykit cloud aws --metadata
@@ -187,7 +187,7 @@ bountykit scan ssti --target https://example.com
 bountykit scan graphql --target https://example.com
 bountykit scan api --target https://example.com
 bountykit scan oauth --target https://example.com
-bountykit scan ssrf --target https://example.com --dns-rebind
+bountykit scan ssrf --target https://example.com --techniques dns_rebinding
 bountykit scan race --target https://example.com
 bountykit scan waf --target https://example.com
 bountykit scan takeover --target https://example.com
@@ -215,12 +215,9 @@ bountykit recon full --target example.com
 <summary><b>🧠 CVE Intelligence</b></summary>
 
 ```bash
-bountykit cve search --keyword "nginx" --severity CRITICAL
-bountykit cve search --year 2024 --severity HIGH
 bountykit cve monitor --tech "apache"
-bountykit cve pocs --cve CVE-2024-1234
-bountykit cve chain --cve CVE-2024-1234
-bountykit cve patchdiff --cve CVE-2024-1234
+bountykit cve chain --cve-ids CVE-2024-1234 --target https://example.com
+bountykit cve patchdiff --repo https://github.com/owner/repo --old v1.0 --new v1.1
 ```
 </details>
 
@@ -229,7 +226,7 @@ bountykit cve patchdiff --cve CVE-2024-1234
 
 ```bash
 bountykit cloud aws --metadata
-bountykit cloud aws --s3-enum
+bountykit cloud aws --bucket my-bucket-name
 bountykit scan cloud-misconfig --target https://example.com
 bountykit advanced cloud --target https://example.com
 ```
@@ -260,6 +257,50 @@ bountykit config show          # View current config
 bountykit config set scan.threads 20
 bountykit legal --target https://example.com   # Check authorization
 bountykit check-updates        # Check PyPI for new version
+```
+</details>
+
+<details>
+<summary><b>🐳 Docker — Advanced Attack Tactics</b></summary>
+
+```bash
+# Build the image
+docker build -t bountykit .
+
+# SSTI — 20+ engines, polyglot probes, RCE chains
+docker run --rm bountykit scan ssti --target https://example.com
+
+# HTTP smuggling — CL.TE, TE.CL, cache poisoning
+docker run --rm bountykit scan smuggle --target https://example.com
+
+# Race conditions — H2 single-packet, JWT race
+docker run --rm bountykit scan race --target https://example.com
+
+# WAF detection + 15 bypass techniques
+docker run --rm bountykit scan waf --target https://example.com
+
+# Supply chain — malicious packages, typosquatting, GHA hijack
+docker run --rm bountykit scan supply-chain --target https://example.com
+
+# LLM/AI — prompt injection, RAG poisoning, tool hijack
+docker run --rm bountykit scan llm --target https://example.com
+
+# Advanced module: race condition & business logic
+docker run --rm bountykit advanced race --target https://example.com
+
+# Advanced module: multi-cloud (AWS/GCP/Azure)
+docker run --rm bountykit advanced cloud --target https://example.com
+
+# Advanced module: HTTP smuggling & cache poisoning
+docker run --rm bountykit advanced smuggle --target https://example.com
+
+# Full advanced pipeline (no parallelism)
+docker run --rm -v "$PWD/results:/app/results" \
+  bountykit pipeline --target https://example.com --scan-type advanced --no-parallel
+
+# Generate HTML report from results
+docker run --rm -v "$PWD/results:/app/results" \
+  bountykit report --format html --input /app/results --output /app/results/report.html
 ```
 </details>
 
@@ -341,11 +382,9 @@ bountykit check-updates        # Check PyPI for new version
 
 | Command | Description |
 |---------|-------------|
-| `cve search` | Search CVEs with keyword, year, severity, CPE filters |
-| `cve monitor` | Monitor technologies for new CVEs |
-| `cve pocs` | Find proof-of-concept exploits for a CVE ID |
-| `cve chain` | Build exploit chains with graph engine and CVSS scoring |
-| `cve patchdiff` | Patch diff analysis to find fixable vulnerabilities |
+| `cve monitor` | Monitor technologies for new CVEs (`--tech`, `--notify`) |
+| `cve chain` | Build exploit chains with graph engine and CVSS scoring (`--cve-ids`, `--target`) |
+| `cve patchdiff` | Patch diff analysis to find introduced vulnerabilities (`--repo`, `--old`, `--new`) |
 
 ---
 
