@@ -42,7 +42,7 @@
 <td width="50%" valign="top">
 
 ### 🛡️ Security
-- **22+ scanner modules**
+- **19 scanner modules**
 - Network, Cloud, LLM, Supply Chain
 - SSTI, Race Conditions, WAF Bypass
 
@@ -78,8 +78,8 @@
 <td width="50%" valign="top">
 
 ### 🚦 Rate Limiting
-- Token bucket algorithm
-- Sliding window per-target
+- Configurable requests/second
+- Per-target throttling
 - DoH fallback support
 
 </td>
@@ -121,12 +121,23 @@ pip install -e ".[dev]"
 <summary><b>🐳 Docker</b></summary>
 
 ```bash
-docker build -t bountykit .
-docker run bountykit scan xss --target https://example.com
+# Start Docker daemon (if not running)
+sudo systemctl start docker
+sudo systemctl status docker
 
-# Run as non-root (default)
+# Build & run
+docker build -t bountykit .
 docker run --rm bountykit version
+
+# Scan with Docker
+docker run --rm bountykit scan xss --url https://example.com
 ```
+
+> 💡 **Tip:** Add your user to the `docker` group to avoid `sudo`:
+> ```bash
+> sudo usermod -aG docker $USER
+> newgrp docker
+> ```
 </details>
 
 <details>
@@ -173,43 +184,44 @@ bountykit report --format html --input ./results
 | `scan xss` | Reflected, stored, and DOM-based XSS detection |
 | `scan sqli` | SQL injection with time-based, boolean, and error-based payloads |
 | `scan ssrf` | Server-side request forgery with DNS rebinding |
-| `scan ssti` | Server-side template injection — polyglot probes, blind time-delay, RCE confirm |
+| `scan ssti` | SSTI detection — 20+ engines, polyglot probes, RCE chains |
 
 </td><td>
 
 | Command | Description |
 |---------|-------------|
-| `scan graphql` | GraphQL introspection, batching, and injection |
-| `scan api` | REST API fuzzing and parameter discovery |
-| `scan oauth` | OAuth 2.0 / OIDC misconfiguration and token abuse |
-| `scan network` | Port scanning, service enumeration, TLS analysis |
+| `scan graphql` | GraphQL security — introspection, batching, query complexity |
+| `scan api` | Test API security — REST, GraphQL, OWASP Top 10 |
+| `scan oauth` | OAuth/JWT security — redirect URI, token theft, JWT analysis |
+| `scan network` | Network-layer attacks — ARP spoof, DNS rebinding, TLS downgrade, BGP hijack, SNMP |
 
 </td></tr>
 <tr><td>
 
 | Command | Description |
 |---------|-------------|
-| `scan headers` | Security header audit and missing HSTS/CSP detection |
-| `scan deserialization` | Java, Python, PHP, .NET deserialization gadget detection |
+| `scan headers` | Security header and cookie audit |
+| `scan deserialization` | Deserialization vulnerabilities — Java, PHP, .NET |
 | `scan takeover` | Subdomain takeover across 72 services with DoH fallback |
-| `scan smuggling` | HTTP/2 smuggling, fat GET, absolute form, differential |
+| `scan smuggle` | HTTP smuggling — CL.TE, TE.CL, TE.TE, cache poisoning, host injection |
 
 </td><td>
 
 | Command | Description |
 |---------|-------------|
-| `scan race` | Race conditions — HTTP/2 single-packet, GraphQL batch, JWT race |
+| `scan race` | Race conditions — H2 single-packet, JWT race, Turbo Intruder |
 | `scan waf` | WAF detection + 15 bypass techniques |
-| `scan supply-chain` | Dependency confusion, typosquatting, GHA composite hijack |
-| `scan llm` | Prompt injection, RAG poisoning, tool abuse, multi-turn chains |
+| `scan supply-chain` | Supply chain — malicious packages, typosquatting, GHA hijack |
+| `scan llm` | LLM/AI security — prompt injection, RAG poisoning, tool hijack |
 
 </td></tr>
 <tr><td colspan="2">
 
 | Command | Description |
 |---------|-------------|
-| `scan cloud-misconfig` | AWS / Azure / GCP / K8s / Firebase / Lambda / Docker scanning |
-| `scan template` | Custom vulnerability template builder |
+| `scan cloud-misconfig` | Cloud misconfig — S3, GCS, Azure Blob, K8s, Firebase, Lambda, EC2 |
+| `scan nuclei` | Nuclei scanner — severity filter, template selection |
+| `scan template` | Generate Nuclei templates for specific vulnerabilities |
 
 </td></tr>
 </table>
@@ -220,14 +232,14 @@ bountykit report --format html --input ./results
 
 | Command | Description |
 |---------|-------------|
-| `recon passive` | Passive OSINT — certificate transparency, DNS, WHOIS |
-| `recon active` | Active enumeration — subdomains, ports, technologies |
-| `recon subdomains` | Subdomain discovery via DoH, wordlists, permutation |
-| `recon js` | JavaScript file analysis — endpoint extraction, secret detection |
-| `recon endpoints` | API endpoint discovery from JS, robots.txt, sitemap |
+| `recon passive` | Passive DNS — crt.sh, DNS lookup |
+| `recon active` | Active probing — httpx, naabu, nmap |
+| `recon subdomains` | Subdomain enumeration — subfinder + DNS brute-force |
+| `recon js` | JavaScript analysis — secrets, DOM XSS, endpoints |
+| `recon endpoints` | Endpoint discovery — Wayback, Arjun, ParamSpider |
 | `recon crawl` | Deep crawler with JavaScript rendering |
-| `recon iot` | IoT device discovery (UPnP, MQTT, CoAP) |
-| `recon mobile` | Mobile app analysis (APK extraction, deeplinks) |
+| `recon iot` | IoT discovery — Shodan, Censys |
+| `recon mobile` | Mobile app analysis (APK/IPA, secrets, endpoints) |
 | `recon full` | Full recon — combines all recon modules |
 
 ---
@@ -236,10 +248,11 @@ bountykit report --format html --input ./results
 
 | Command | Description |
 |---------|-------------|
-| `cve search` | Search CVEs with keyword, severity, vendor, date filters |
+| `cve search` | Search CVEs with keyword, year, severity, CPE filters |
+| `cve monitor` | Monitor technologies for new CVEs |
+| `cve pocs` | Find proof-of-concept exploits for a CVE ID |
 | `cve chain` | Build exploit chains with graph engine and CVSS scoring |
-| `cve exploit-db` | Pull exploits from Exploit-DB and GitHub |
-| `cve diff` | Patch diff analysis to find fixable vulnerabilities |
+| `cve patchdiff` | Patch diff analysis to find fixable vulnerabilities |
 
 ---
 
@@ -267,12 +280,12 @@ bountykit report --format html --input ./results
 
 | Command | Description |
 |---------|-------------|
-| `advanced llm` | LLM/AI security — prompt injection, RAG poisoning, tool abuse |
-| `advanced supplychain` | Supply chain — dependency confusion, typosquatting, GHA hijack |
-| `advanced race` | Race conditions — HTTP/2 single-packet, GraphQL batch |
-| `advanced smuggle` | HTTP smuggling — CL.TE, TE.CL, TE.TE, cache poisoning |
-| `advanced ssti` | SSTI — polyglot probes, blind time-delay, RCE confirm |
-| `advanced cloud` | Cloud misconfig — multi-provider scanner |
+| `advanced llm` | LLM/AI security — prompt injection, SSRF, skill poisoning |
+| `advanced supplychain` | Supply chain — malicious packages, typosquatting, CI/CD |
+| `advanced race` | Race condition & business logic testing |
+| `advanced smuggle` | HTTP smuggling & cache poisoning |
+| `advanced ssti` | SSTI — 20+ template engines |
+| `advanced cloud` | Multi-cloud security — AWS, GCP, Azure |
 
 ---
 
@@ -283,7 +296,7 @@ bountykit report --format html --input ./results
 | `setup` | Install and verify all external tools |
 | `version` | Show version and check external tools |
 | `config show` | View current configuration |
-| `config set <key> <value>` | Set config value |
+| `config set <key> <value>` | Set config value (e.g., `scan.threads 20`) |
 | `report` | Generate report (markdown / json / html) |
 | `report-generate` | Alias for report generation |
 | `legal` | Check legal authorization for a target |

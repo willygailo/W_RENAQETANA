@@ -30,13 +30,12 @@ WORKDIR /app
 # Copy project files
 COPY . /app
 
-# Create virtual environment and install project
-RUN python3 -m venv /app/.venv && \
-    /app/.venv/bin/pip install --upgrade pip && \
-    /app/.venv/bin/pip install -e .[dev]
+# Install project dependencies (container = safe to break system packages)
+RUN pip install --break-system-packages --upgrade pip && \
+    pip install --break-system-packages -e .[dev]
 
 # Pre-pull nuclei templates
-RUN /app/.venv/bin/bountykit setup 2>/dev/null || true
+RUN bountykit setup 2>/dev/null || true
 
 # Create non-root user
 RUN groupadd -r bountykit && useradd -r -g bountykit -d /app -s /bin/bash bountykit && \
@@ -45,8 +44,8 @@ USER bountykit
 
 # Healthcheck — verify bountykit CLI starts
 HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
-    CMD ["/app/.venv/bin/bountykit", "version"]
+    CMD ["bountykit", "version"]
 
 # Set the default entrypoint
-ENTRYPOINT ["/app/.venv/bin/bountykit"]
+ENTRYPOINT ["bountykit"]
 CMD ["--help"]
