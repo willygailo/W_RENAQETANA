@@ -180,8 +180,8 @@ Ready-to-run one-liners. Just copy, paste, and replace `https://example.com` wit
 <summary><b>🎯 Scanners</b></summary>
 
 ```bash
-bountykit scan xss  --target https://example.com
-bountykit scan sqli --target https://example.com
+bountykit scan xss  --url https://example.com
+bountykit scan sqli --url https://example.com
 bountykit scan ssrf --target https://example.com
 bountykit scan ssti --target https://example.com
 bountykit scan graphql --target https://example.com
@@ -206,7 +206,7 @@ bountykit recon js --target https://example.com
 bountykit recon endpoints --target https://example.com
 bountykit recon crawl --target https://example.com
 bountykit recon iot --target example.com
-bountykit recon mobile --target https://example.com/app.apk
+bountykit recon mobile --apk ./app.apk
 bountykit recon full --target example.com
 ```
 </details>
@@ -227,8 +227,8 @@ bountykit cve patchdiff --repo https://github.com/owner/repo --old v1.0 --new v1
 ```bash
 bountykit cloud aws --metadata
 bountykit cloud aws --bucket my-bucket-name
-bountykit scan cloud-misconfig --target https://example.com
-bountykit advanced cloud --target https://example.com
+bountykit scan cloud-misconfig -p aws
+bountykit advanced cloud -p aws
 ```
 </details>
 
@@ -289,7 +289,7 @@ docker run --rm bountykit scan llm --target https://example.com
 docker run --rm bountykit advanced race --target https://example.com
 
 # Advanced module: multi-cloud (AWS/GCP/Azure)
-docker run --rm bountykit advanced cloud --target https://example.com
+docker run --rm bountykit advanced cloud -p aws
 
 # Advanced module: HTTP smuggling & cache poisoning
 docker run --rm bountykit advanced smuggle --target https://example.com
