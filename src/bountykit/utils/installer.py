@@ -19,7 +19,7 @@ GO_TOOLS = [
     ("dnsx", "github.com/projectdiscovery/dnsx/cmd/dnsx@latest"),
     ("interactsh-client", "github.com/projectdiscovery/interactsh/cmd/interactsh-client@latest"),
     ("ffuf", "github.com/ffuf/ffuf/v2@latest"),
-    ("dalfox", "github.com/s0md3v/dalfox@latest"),
+    ("dalfox", "github.com/hahwul/dalfox/v2@latest"),
     ("gau", "github.com/lc/gau/v2/cmd/gau@latest"),
     ("anew", "github.com/tomnomnom/anew@latest"),
     ("waybackurls", "github.com/tomnomnom/waybackurls@latest"),
@@ -28,7 +28,7 @@ GO_TOOLS = [
     ("gowitness", "github.com/sensepost/gowitness@latest"),
     ("gospider", "github.com/jaeles-project/gospider@latest"),
     ("crlfuzz", "github.com/dwisiswant0/crlfuzz/cmd/crlfuzz@latest"),
-    ("cariddi", "github.com/edoardocariddi/cariddi@latest"),
+    ("cariddi", "github.com/edoardottt/cariddi/cmd/cariddi@latest"),
     ("chaos-client", "github.com/projectdiscovery/chaos-client/cmd/chaos@latest"),
 ]
 
