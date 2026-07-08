@@ -172,6 +172,99 @@ bountykit report --format html --input ./results
 
 ---
 
+## 📋 Copy-Paste Commands
+
+Ready-to-run one-liners. Just copy, paste, and replace `https://example.com` with your authorized target.
+
+<details open>
+<summary><b>🎯 Scanners</b></summary>
+
+```bash
+bountykit scan xss  --target https://example.com
+bountykit scan sqli --target https://example.com
+bountykit scan ssrf --target https://example.com
+bountykit scan ssti --target https://example.com
+bountykit scan graphql --target https://example.com
+bountykit scan api --target https://example.com
+bountykit scan oauth --target https://example.com
+bountykit scan ssrf --target https://example.com --dns-rebind
+bountykit scan race --target https://example.com
+bountykit scan waf --target https://example.com
+bountykit scan takeover --target https://example.com
+bountykit scan llm --target https://example.com
+```
+</details>
+
+<details>
+<summary><b>🔎 Reconnaissance</b></summary>
+
+```bash
+bountykit recon passive --target example.com
+bountykit recon active --target example.com
+bountykit recon subdomains --target example.com
+bountykit recon js --target https://example.com
+bountykit recon endpoints --target https://example.com
+bountykit recon crawl --target https://example.com
+bountykit recon iot --target example.com
+bountykit recon mobile --target https://example.com/app.apk
+bountykit recon full --target example.com
+```
+</details>
+
+<details>
+<summary><b>🧠 CVE Intelligence</b></summary>
+
+```bash
+bountykit cve search --keyword "nginx" --severity CRITICAL
+bountykit cve search --year 2024 --severity HIGH
+bountykit cve monitor --tech "apache"
+bountykit cve pocs --cve CVE-2024-1234
+bountykit cve chain --cve CVE-2024-1234
+bountykit cve patchdiff --cve CVE-2024-1234
+```
+</details>
+
+<details>
+<summary><b>☁️ Cloud Security</b></summary>
+
+```bash
+bountykit cloud aws --metadata
+bountykit cloud aws --s3-enum
+bountykit scan cloud-misconfig --target https://example.com
+bountykit advanced cloud --target https://example.com
+```
+</details>
+
+<details>
+<summary><b>🚀 Pipeline & Reports</b></summary>
+
+```bash
+bountykit pipeline --target https://example.com --scan-type full
+bountykit pipeline --target https://example.com --scan-type quick
+bountykit pipeline --target https://example.com --scan-type advanced --no-parallel
+bountykit pipeline --target https://example.com --resume
+
+bountykit report --format json     --input ./results --output report.json
+bountykit report --format html     --input ./results --output report.html
+bountykit report --format markdown --input ./results --output report.md
+```
+</details>
+
+<details>
+<summary><b>🛠️ Utility & Legal</b></summary>
+
+```bash
+bountykit setup                 # Install & verify external tools
+bountykit version               # Show version & tool status
+bountykit config show          # View current config
+bountykit config set scan.threads 20
+bountykit legal --target https://example.com   # Check authorization
+bountykit check-updates        # Check PyPI for new version
+```
+</details>
+
+---
+
 ## 🗂️ All Commands
 
 ### 🎯 Scanners
