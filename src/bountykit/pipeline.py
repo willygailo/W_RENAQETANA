@@ -2,8 +2,9 @@
 
 Covers ADVANCED_BUGBOUNTY_CVE.md Section 19:
 - Complete scanning pipeline
-- Parallel execution
-- Result aggregation
+- Parallel execution with dependency graph and concurrency cap (5)
+- Result aggregation and --resume support
+- Rich progress bar with live findings counter
 - Report generation
 """
 
@@ -17,9 +18,37 @@ from typing import Optional
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    TaskProgressColumn,
+    TimeElapsedColumn,
+)
 
 console = Console()
+
+# ─── Dependency Graph ─────────────────────────────────────────────────────────
+# Phase dependencies: key depends on value(s) being completed first.
+# Phases not listed here have no dependencies and can start immediately.
+
+PHASE_DEPENDENCIES: dict[str, list[str]] = {
+    "endpoints": ["recon"],
+    "scan": ["endpoints"],
+    "advanced": ["scan"],
+    "network": ["recon"],
+    "headers": ["scan"],
+    "waf": ["scan"],
+    "cve": ["recon"],
+    "cloud": ["recon"],
+    "cloud_misconfig": ["recon"],
+    "supply_chain": ["scan"],
+    "report": [],  # report depends on all non-report phases (handled specially)
+}
+
+# Maximum concurrent phases to avoid resource exhaustion
+MAX_CONCURRENT_PHASES = 5
 
 
 def run_full_pipeline(
@@ -27,27 +56,34 @@ def run_full_pipeline(
     output_dir: str = "./results",
     scan_type: str = "full",
     parallel: bool = True,
+    resume: bool = False,
 ) -> dict:
     """Run the full bounty hunting pipeline.
 
     Args:
         target: Target domain or URL
         output_dir: Output directory
-        scan_type: Type of scan (full, quick, recon, scan, cve)
-        parallel: Enable parallel execution
+        scan_type: Type of scan (full, quick, recon, scan, cve, advanced)
+        parallel: Enable parallel execution with dependency graph
+        resume: Resume from previously completed phases
     """
     results = {
         "target": target,
         "scan_type": scan_type,
+        "output_dir": output_dir,
         "start_time": time.time(),
         "phases": {},
     }
 
     os.makedirs(output_dir, exist_ok=True)
 
+    # Load previous results if resuming
+    if resume:
+        results = _load_resume_state(output_dir, results)
+
     console.print(Panel(
         f"[bold]Starting bounty pipeline for: {target}[/bold]\n"
-        f"Scan type: {scan_type} | Parallel: {parallel}",
+        f"Scan type: {scan_type} | Parallel: {parallel} | Resume: {resume}",
         title="BountyKit Pipeline",
         border_style="green",
     ))
@@ -105,26 +141,38 @@ def _get_phases(scan_type: str) -> list:
             "priority": 4,
         },
         {
+            "name": "network",
+            "description": "Network Attacks",
+            "tools": ["takeover", "smuggle", "race_condition"],
+            "priority": 4,
+        },
+        {
             "name": "headers",
-            "description": "Security Headers",
+            "description": "Security Headers & WAF",
             "tools": ["headers", "waf"],
             "priority": 5,
         },
         {
             "name": "cve",
             "description": "CVE Research",
-            "tools": ["search", "monitor", "exploit_db"],
+            "tools": ["search", "monitor"],
             "priority": 6,
         },
         {
             "name": "cloud",
-            "description": "Cloud Security",
+            "description": "Cloud Security (SDK)",
             "tools": ["aws", "multi_cloud"],
             "priority": 7,
         },
         {
+            "name": "cloud_misconfig",
+            "description": "Cloud Misconfig (Web Probes)",
+            "tools": ["cloud_misconfig"],
+            "priority": 7,
+        },
+        {
             "name": "supply_chain",
-            "description": "Supply Chain Security",
+            "description": "Supply Chain & LLM Security",
             "tools": ["supply_chain", "llm"],
             "priority": 8,
         },
@@ -145,9 +193,67 @@ def _get_phases(scan_type: str) -> list:
     elif scan_type == "cve":
         return [p for p in all_phases if p["name"] in ["cve", "report"]]
     elif scan_type == "advanced":
-        return [p for p in all_phases if p["name"] in ["advanced", "cloud", "supply_chain", "report"]]
+        return [p for p in all_phases if p["name"] in [
+            "advanced", "network", "cloud", "cloud_misconfig", "supply_chain", "report",
+        ]]
     else:
         return all_phases
+
+
+def _load_resume_state(output_dir: str, results: dict) -> dict:
+    """Load previous pipeline state for resume support."""
+    output_file = Path(output_dir) / "pipeline_results.json"
+    if output_file.exists():
+        try:
+            with open(output_file) as f:
+                prev = json.load(f)
+            if "phases" in prev:
+                results["phases"] = prev["phases"]
+                completed = list(prev["phases"].keys())
+                console.print(f"[yellow]Resuming — {len(completed)} phases already done: {completed}[/yellow]")
+        except (json.JSONDecodeError, KeyError):
+            pass
+    return results
+
+
+def _get_ready_phases(
+    phases: list, completed: set[str], running: set[str]
+) -> list:
+    """Return phases whose dependencies are satisfied and not yet started."""
+    ready = []
+    for phase in phases:
+        name = phase["name"]
+        if name in completed or name in running:
+            continue
+        deps = PHASE_DEPENDENCIES.get(name, [])
+        # For 'report' phase, wait for all non-report phases
+        if name == "report":
+            non_report = {p["name"] for p in phases if p["name"] != "report"}
+            if non_report - completed:
+                continue
+        elif not all(d in completed for d in deps):
+            continue
+        ready.append(phase)
+    return ready
+
+
+def _count_findings(output_dir: str) -> dict[str, int]:
+    """Count findings by severity across all result files."""
+    counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+    results_path = Path(output_dir)
+    for json_file in results_path.rglob("*.json"):
+        if json_file.name == "pipeline_results.json":
+            continue
+        try:
+            with open(json_file) as f:
+                data = json.load(f)
+            for item in _extract_findings(data):
+                sev = item.get("severity", "info").lower()
+                if sev in counts:
+                    counts[sev] += 1
+        except (json.JSONDecodeError, KeyError):
+            continue
+    return counts
 
 
 def _run_sequential(target: str, phases: list, output_dir: str, results: dict) -> dict:
@@ -161,43 +267,75 @@ def _run_sequential(target: str, phases: list, output_dir: str, results: dict) -
 
 
 def _run_parallel(target: str, phases: list, output_dir: str, results: dict) -> dict:
-    """Run independent pipeline phases in parallel."""
-    # Group phases by priority (phases with same priority can run in parallel)
-    priority_groups = {}
-    for phase in phases:
-        priority = phase["priority"]
-        if priority not in priority_groups:
-            priority_groups[priority] = []
-        priority_groups[priority].append(phase)
+    """Run pipeline phases respecting dependency graph with concurrency cap."""
+    completed = set(results["phases"].keys())
+    running = set()
+    total = len(phases)
 
-    for priority in sorted(priority_groups.keys()):
-        group = priority_groups[priority]
+    # Filter out already-completed phases if resuming
+    remaining = [p for p in phases if p["name"] not in completed]
 
-        if len(group) == 1:
-            # Single phase, run directly
-            phase = group[0]
-            console.print(f"\n[bold]Phase {priority}: {phase['description']}[/bold]")
-            phase_results = _execute_phase(target, phase, output_dir)
-            results["phases"][phase["name"]] = phase_results
-        else:
-            # Multiple phases, run in parallel
-            console.print(
-                f"\n[bold]Phase {priority}: Running {len(group)} tasks in parallel[/bold]"
-            )
-            with ThreadPoolExecutor(max_workers=len(group)) as executor:
-                futures = {
-                    executor.submit(_execute_phase, target, phase, output_dir): phase
-                    for phase in group
-                }
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("[bold green]Pipeline[/bold green]", total=total)
+
+        # Advance progress for completed phases
+        progress.advance(task, advance=len(completed))
+
+        while len(completed) < total and remaining:
+            ready = _get_ready_phases(remaining, completed, running)
+            if not ready:
+                # All remaining phases blocked on dependencies — shouldn't happen
+                console.print("[red]Deadlock: no phases ready to run[/red]")
+                break
+
+            # Apply concurrency cap: only run up to MAX_CONCURRENT_PHASES at once
+            to_launch = ready[: MAX_CONCURRENT_PHASES - len(running)]
+
+            with ThreadPoolExecutor(max_workers=len(to_launch)) as executor:
+                futures = {}
+                for phase in to_launch:
+                    running.add(phase["name"])
+                    progress.update(
+                        task,
+                        description=f"[bold]{phase['description']}[/bold]",
+                    )
+                    futures[executor.submit(_execute_phase, target, phase, output_dir)] = phase
 
                 for future in as_completed(futures):
                     phase = futures[future]
+                    running.discard(phase["name"])
                     try:
                         phase_results = future.result()
                         results["phases"][phase["name"]] = phase_results
+                        completed.add(phase["name"])
+                        progress.advance(task)
                     except Exception as e:
                         console.print(f"  [red]Phase {phase['name']} failed: {e}[/red]")
                         results["phases"][phase["name"]] = {"error": str(e)}
+                        completed.add(phase["name"])
+                        progress.advance(task)
+
+                    # Live findings counter
+                    fc = _count_findings(output_dir)
+                    total_findings = sum(fc.values())
+                    progress.update(
+                        task,
+                        description=(
+                            f"[bold]{phase['description']}[/bold] "
+                            f"[red]C:{fc['critical']}[/red] "
+                            f"[yellow]H:{fc['high']}[/yellow] "
+                            f"[cyan]M:{fc['medium']}[/cyan] "
+                            f"[dim]L:{fc['low']} I:{fc['info']}[/dim] "
+                            f"Total:{total_findings}"
+                        ),
+                    )
 
     return results
 
@@ -221,6 +359,7 @@ def _execute_phase(target: str, phase: dict, output_dir: str) -> dict:
         from bountykit.scan import deserialization, graphql, oauth, takeover
         from bountykit.scan import headers, waf
         from bountykit.scan import ssti, smuggling, race_condition, llm, supply_chain
+        from bountykit.scan import cloud_misconfig
         from bountykit.cve import search, monitor
         from bountykit.cloud import aws, multi_cloud
 
@@ -241,7 +380,8 @@ def _execute_phase(target: str, phase: dict, output_dir: str) -> dict:
             "oauth": lambda: oauth.test_redirect_uri(target, str(phase_output)),
             "takeover": lambda: takeover.scan_takeover(target, str(phase_output)),
             "headers": lambda: headers.analyze_headers(target, str(phase_output)),
-            "waf": lambda: waf.detect_waf(target, str(phase_output)),
+            "waf": lambda: asyncio.run(waf.WAFScanner(target).run_full_scan()),
+            "network": lambda: asyncio.run(_run_network_attacks(target, phase_output)),
             "ssti": lambda: asyncio.run(ssti.SSTITester(target).test_all()),
             "smuggle": lambda: asyncio.run(smuggling.HTTPSmugglingTester(target).test_all()),
             "race_condition": lambda: asyncio.run(race_condition.RaceConditionTester(target).test_all()),
@@ -249,6 +389,7 @@ def _execute_phase(target: str, phase: dict, output_dir: str) -> dict:
             "supply_chain": lambda: asyncio.run(supply_chain.SupplyChainScanner(target_path=target).scan_project()),
             "aws": lambda: aws.test_aws(bucket=None, test_metadata=True, output_dir=str(phase_output)),
             "multi_cloud": lambda: asyncio.run(multi_cloud.MultiCloudScanner(target=target).scan_all()),
+            "cloud_misconfig": lambda: asyncio.run(cloud_misconfig.CloudMisconfigurationScanner(target=target).scan_all()),
             "search": lambda: _run_cve_search(target, str(phase_output)),
             "monitor": lambda: {"status": "monitoring_configured"},
             "markdown": lambda: _generate_reports(target, output_dir),
@@ -276,6 +417,28 @@ def _execute_phase(target: str, phase: dict, output_dir: str) -> dict:
     return phase_results
 
 
+async def _run_network_attacks(target: str, phase_output: Path) -> dict:
+    """Run all network attack modules (takeover, smuggling, race condition)."""
+    from bountykit.scan import takeover, smuggling, race_condition
+
+    results = {}
+    async with takeover.NetworkScanner(target) as scanner:
+        results["takeover"] = await scanner.scan_all()
+
+    smuggler = smuggling.HTTPSmugglingTester(target)
+    results["smuggling"] = await smuggler.test_all()
+
+    racer = race_condition.RaceConditionTester(target)
+    results["race_condition"] = await racer.test_all()
+
+    # Save combined results
+    output_file = phase_output / "network_results.json"
+    with open(output_file, "w") as f:
+        json.dump(results, f, indent=2, default=str)
+
+    return {"status": "success", "file": str(output_file), "modules": list(results.keys())}
+
+
 def _generate_summary(results: dict):
     """Generate pipeline summary."""
     console.print(Panel(
@@ -299,6 +462,23 @@ def _format_summary(results: dict) -> str:
             lines.append(f"  ✓ {phase_name}: {tools_run} tools run")
         else:
             lines.append(f"  ✗ {phase_name}: failed")
+
+    # Add findings breakdown if output_dir available
+    output_dir = results.get("output_dir", "./results")
+    fc = _count_findings(output_dir)
+    total = sum(fc.values())
+    if total > 0:
+        lines.append(f"\n[bold]Findings:[/bold] {total} total")
+        if fc["critical"]:
+            lines.append(f"  [red]Critical: {fc['critical']}[/red]")
+        if fc["high"]:
+            lines.append(f"  [yellow]High: {fc['high']}[/yellow]")
+        if fc["medium"]:
+            lines.append(f"  [cyan]Medium: {fc['medium']}[/cyan]")
+        if fc["low"]:
+            lines.append(f"  Low: {fc['low']}")
+        if fc["info"]:
+            lines.append(f"  Info: {fc['info']}")
 
     return "\n".join(lines)
 

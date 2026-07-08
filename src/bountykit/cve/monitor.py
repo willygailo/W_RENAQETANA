@@ -52,7 +52,16 @@ def start_monitor(
                         console.print(f"[bold red]NEW: {cve.cve_id}[/bold red] — {cve.description[:80]}")
 
                         if notify:
-                            _send_webhook(notify, {"id": cve.cve_id, "description": cve.description}, tech)
+                            _send_webhook(
+                                notify,
+                                {
+                                    "id": cve.cve_id,
+                                    "description": cve.description,
+                                    "severity": cve.severity,
+                                    "url": cve.url,
+                                },
+                                tech,
+                            )
 
             _save_state(known_cves)
             console.print(f"[dim]Next check in {interval}s...[/dim]")

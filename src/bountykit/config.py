@@ -51,7 +51,7 @@ class ScanConfig(BaseModel):
     """Scanning configuration."""
     threads: int = 10
     timeout: int = 30
-    user_agent: str = "bountykit/0.1 (authorized research)"
+    user_agent: str = "bountykit/0.2.0 (authorized research)"
     output_dir: str = "./results"
 
 
@@ -104,6 +104,31 @@ class SSTIConfig(BaseModel):
     test_ssrf: bool = True
 
 
+class WAFConfig(BaseModel):
+    """WAF detection and analysis configuration."""
+    test_bypasses: bool = True
+    detect_cloudflare: bool = True
+    detect_aws_waf: bool = True
+    detect_azure_waf: bool = True
+    detect_gcp_waf: bool = True
+
+
+class CVEChainConfig(BaseModel):
+    """CVE chaining and analysis configuration."""
+    chain_depth: int = 3
+    include_epss: bool = True
+    include_cisa_kev: bool = True
+    max_results: int = 50
+
+
+class NetworkConfig(BaseModel):
+    """Network attack configuration."""
+    takeover_check: bool = True
+    smuggling_check: bool = True
+    race_condition_check: bool = True
+    timeout: int = 30
+
+
 class CloudConfig(BaseModel):
     """Multi-cloud security configuration."""
     provider: str = "all"
@@ -124,6 +149,9 @@ class Config(BaseModel):
     smuggling: SmugglingConfig = Field(default_factory=SmugglingConfig)
     ssti: SSTIConfig = Field(default_factory=SSTIConfig)
     cloud: CloudConfig = Field(default_factory=CloudConfig)
+    waf: WAFConfig = Field(default_factory=WAFConfig)
+    cve_chain: CVEChainConfig = Field(default_factory=CVEChainConfig)
+    network: NetworkConfig = Field(default_factory=NetworkConfig)
     target: Optional[str] = None
 
     @classmethod

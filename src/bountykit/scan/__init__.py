@@ -13,8 +13,12 @@ from bountykit.scan.graphql import test_introspection, test_batch_queries, test_
 from bountykit.scan.oauth import test_redirect_uri, test_token_theft, analyze_jwt
 from bountykit.scan.takeover import scan_takeover
 from bountykit.scan.headers import analyze_headers
-from bountykit.scan.waf import detect_waf, test_waf_bypass
+from bountykit.scan.waf import detect_waf, test_waf_bypass, WAFScanner
+from bountykit.scan.cloud_misconfig import CloudMisconfigurationScanner
 from bountykit.scan.template_builder import build_sqli_template, build_xss_template, build_idor_template, validate_template
+
+# Aliases
+WFBDetector = WAFScanner
 
 __all__ = [
     "run_nuclei", "run_sqlmap", "run_dalfox", "test_ssrf", "test_api",
@@ -22,5 +26,6 @@ __all__ = [
     "test_introspection", "test_batch_queries", "test_query_complexity", "scan_graphql",
     "test_redirect_uri", "test_token_theft", "analyze_jwt",
     "scan_takeover", "analyze_headers", "detect_waf", "test_waf_bypass",
+    "WAFScanner", "WFBDetector", "CloudMisconfigurationScanner",
     "build_sqli_template", "build_xss_template", "build_idor_template", "validate_template",
 ]

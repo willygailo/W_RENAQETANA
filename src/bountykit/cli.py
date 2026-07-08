@@ -381,6 +381,175 @@ def scan_waf(ctx, target, output, bypass):
         detect_waf(target, output)
 
 
+@scan.command("ssti")
+@click.option("--target", "-t", required=True, help="Target URL")
+@click.option("--engine", "-e", default="auto", help="Template engine (auto, jinja2, twig, etc.)")
+@click.option("--output", "-o", type=click.Path(), default="./results", help="Output directory")
+@click.pass_context
+def scan_ssti(ctx, target, engine, output):
+    """Server-Side Template Injection detection (20+ engines, polyglot probes, RCE chains)."""
+    from bountykit.scan.ssti import SSTITester
+    _legal_check(ctx.obj["config"], target)
+    console.print(f"\n[bold cyan]SSTI Detection: {target}[/bold cyan]\n")
+    tester = SSTITester(target)
+    result = asyncio.run(tester.test_all())
+    saved = tester._save_results(result, output)
+    table = Table(title="SSTI Findings", show_lines=True)
+    table.add_column("Severity", style="bold red", width=10)
+    table.add_column("Engine", style="cyan", width=15)
+    table.add_column("Title", style="white")
+    for f in result.findings:
+        color = {"critical": "red", "high": "bright_red", "medium": "yellow", "low": "green"}.get(f.severity, "white")
+        table.add_row(f"[{color}]{f.severity.upper()}[/{color}]", f.template_engine, f.title)
+    if result.findings:
+        console.print(table)
+    console.print(f"\n[green]✓ {len(result.findings)} findings → {saved}[/green]\n")
+
+
+@scan.command("smuggle")
+@click.option("--target", "-t", required=True, help="Target URL")
+@click.option("--attack", "-a", type=click.Choice(
+    ["cl_te", "te_cl", "te_te", "cache_poison", "host_injection", "all"]
+), default="all", help="Attack type")
+@click.option("--output", "-o", type=click.Path(), default="./results", help="Output directory")
+@click.pass_context
+def scan_smuggle(ctx, target, attack, output):
+    """HTTP request smuggling & cache poisoning testing."""
+    from bountykit.scan.smuggling import HTTPSmugglingTester
+    _legal_check(ctx.obj["config"], target)
+    console.print(f"\n[bold cyan]HTTP Smuggling & Cache Poisoning: {target}[/bold cyan]\n")
+    tester = HTTPSmugglingTester(target)
+    result = asyncio.run(tester.test_all())
+    saved = tester._save_results(result, output)
+    table = Table(title="Smuggling / Cache Poisoning Findings", show_lines=True)
+    table.add_column("Severity", style="bold red", width=10)
+    table.add_column("Category", style="cyan", width=20)
+    table.add_column("Title", style="white")
+    for f in result.findings:
+        color = {"critical": "red", "high": "bright_red", "medium": "yellow", "low": "green"}.get(f.severity, "white")
+        table.add_row(f"[{color}]{f.severity.upper()}[/{color}]", f.category, f.title)
+    if result.findings:
+        console.print(table)
+    console.print(f"\n[green]✓ {len(result.findings)} findings → {saved}[/green]\n")
+
+
+@scan.command("race")
+@click.option("--target", "-t", required=True, help="Target URL")
+@click.option("--param", "-p", default=None, help="Parameter to test")
+@click.option("--threads", default=10, type=int, help="Number of concurrent threads")
+@click.option("--output", "-o", type=click.Path(), default="./results", help="Output directory")
+@click.pass_context
+def scan_race(ctx, target, param, threads, output):
+    """Race condition & business logic testing (H2 single-packet, JWT race, Turbo Intruder)."""
+    from bountykit.scan.race_condition import RaceConditionTester
+    _legal_check(ctx.obj["config"], target)
+    console.print(f"\n[bold cyan]Race Condition Testing: {target}[/bold cyan]\n")
+    tester = RaceConditionTester(target, max_concurrent=threads)
+    result = asyncio.run(tester.test_all())
+    saved = tester._save_results(result, output)
+    table = Table(title="Race Condition Findings", show_lines=True)
+    table.add_column("Severity", style="bold red", width=10)
+    table.add_column("Category", style="cyan", width=20)
+    table.add_column("Title", style="white")
+    for f in result.findings:
+        color = {"critical": "red", "high": "bright_red", "medium": "yellow", "low": "green"}.get(f.severity, "white")
+        table.add_row(f"[{color}]{f.severity.upper()}[/{color}]", f.category, f.title)
+    if result.findings:
+        console.print(table)
+    console.print(f"\n[green]✓ {len(result.findings)} findings → {saved}[/green]\n")
+
+
+@scan.command("supply-chain")
+@click.option("--target", "-t", required=True, help="Target repository URL or local path")
+@click.option("--attack", "-a", type=click.Choice(
+    ["malicious_packages", "typosquatting", "ci_cd", "mcp_hijack", "skill_poisoning", "all"]
+), default="all", help="Supply chain attack type")
+@click.option("--output", "-o", type=click.Path(), default="./results", help="Output directory")
+@click.pass_context
+def scan_supply_chain(ctx, target, attack, output):
+    """Supply chain security scanning (malicious packages, typosquatting, GHA hijack)."""
+    from bountykit.scan.supply_chain import SupplyChainScanner
+    _legal_check(ctx.obj["config"], target)
+    console.print(f"\n[bold cyan]Supply Chain Security: {target}[/bold cyan]\n")
+    scanner = SupplyChainScanner(target_path=target)
+    result = asyncio.run(scanner.scan_project())
+    saved = scanner._save_results(result, output)
+    table = Table(title="Supply Chain Findings", show_lines=True)
+    table.add_column("Severity", style="bold red", width=10)
+    table.add_column("Category", style="cyan", width=20)
+    table.add_column("Title", style="white")
+    for f in result.findings:
+        color = {"critical": "red", "high": "bright_red", "medium": "yellow", "low": "green"}.get(f.severity, "white")
+        table.add_row(f"[{color}]{f.severity.upper()}[/{color}]", f.category, f.title)
+    if result.findings:
+        console.print(table)
+    console.print(f"\n[green]✓ {len(result.findings)} findings → {saved}[/green]\n")
+
+
+@scan.command("llm")
+@click.option("--target", "-t", required=True, help="Target URL or API endpoint")
+@click.option("--model", "-m", default=None, help="LLM model to test (e.g., gpt-4)")
+@click.option("--attack", "-a", type=click.Choice(
+    ["prompt_injection", "ssrf_via_llm", "tool_hijack", "model_extraction", "skill_poisoning", "all"]
+), default="all", help="Attack type")
+@click.option("--output", "-o", type=click.Path(), default="./results", help="Output directory")
+@click.pass_context
+def scan_llm(ctx, target, model, attack, output):
+    """LLM/AI security testing (prompt injection, RAG poisoning, tool hijack)."""
+    from bountykit.scan.llm import LLMTester
+    _legal_check(ctx.obj["config"], target)
+    console.print(f"\n[bold cyan]LLM/AI Security Testing: {target}[/bold cyan]\n")
+    tester = LLMTester(target)
+    result = asyncio.run(tester.test_all())
+    saved = tester._save_results(result, output)
+    table = Table(title="LLM/AI Security Findings", show_lines=True)
+    table.add_column("Severity", style="bold red", width=10)
+    table.add_column("Category", style="cyan", width=20)
+    table.add_column("Title", style="white")
+    for f in result.findings:
+        color = {"critical": "red", "high": "bright_red", "medium": "yellow", "low": "green"}.get(f.severity, "white")
+        table.add_row(f"[{color}]{f.severity.upper()}[/{color}]", f.category, f.title)
+    if result.findings:
+        console.print(table)
+    console.print(f"\n[green]✓ {len(result.findings)} findings → {saved}[/green]\n")
+
+
+@scan.command("cloud-misconfig")
+@click.option("--provider", "-p", type=click.Choice(["aws", "gcp", "azure", "kubernetes", "all"]), default="all", help="Cloud provider")
+@click.option("--output", "-o", type=click.Path(), default="./results", help="Output directory")
+@click.pass_context
+def scan_cloud_misconfig(ctx, provider, output):
+    """Cloud misconfiguration scanning (S3, GCS, Azure Blob, K8s, Firebase, Lambda, EC2)."""
+    from bountykit.scan.cloud_misconfig import CloudMisconfigurationScanner
+    _legal_check(ctx.obj["config"], provider)
+    console.print(f"\n[bold cyan]Cloud Misconfiguration Scanning: {provider}[/bold cyan]\n")
+    scanner = CloudMisconfigurationScanner(target=provider)
+    result = asyncio.run(scanner.scan_all())
+    table = Table(title="Cloud Misconfig Findings", show_lines=True)
+    table.add_column("Severity", style="bold red", width=10)
+    table.add_column("Provider", style="cyan", width=12)
+    table.add_column("Title", style="white")
+    for f in result.findings:
+        color = {"critical": "red", "high": "bright_red", "medium": "yellow", "low": "green"}.get(f.severity, "white")
+        table.add_row(f"[{color}]{f.severity.upper()}[/{color}]", f.provider, f.title)
+    if result.findings:
+        console.print(table)
+    console.print(f"\n[green]✓ {len(result.findings)} findings[/green]\n")
+
+
+@scan.command("network")
+@click.option("--target", "-t", required=True, help="Target IP or domain")
+@click.option("--output", "-o", type=click.Path(), default="./results", help="Output directory")
+@click.option("--full", is_flag=True, help="Full port scan (all 65535 ports)")
+@click.pass_context
+def scan_network(ctx, target, output, full):
+    """Network-layer attacks (ARP spoof, DNS rebinding, TLS downgrade, BGP hijack, SNMP)."""
+    from bountykit.scan.network import scan_network as _scan_network
+    _legal_check(ctx.obj["config"], target)
+    console.print(f"\n[bold cyan]Network Attack Scanning: {target}[/bold cyan]\n")
+    _scan_network(target, output)
+
+
 @scan.command("template")
 @click.option("--vuln", "-v", required=True, type=click.Choice(
     ["sqli", "xss", "idor", "ssrf", "lfi", "rce"],
@@ -666,12 +835,13 @@ def advanced_cloud(ctx, provider, metadata_bypass, credentials, output):
 @click.option("--scan-type", type=click.Choice(["full", "quick", "recon", "scan", "cve", "advanced"]),
               default="full", help="Type of scan to run")
 @click.option("--no-parallel", is_flag=True, help="Disable parallel execution")
+@click.option("--resume", is_flag=True, help="Resume from previously completed phases")
 @click.pass_context
-def pipeline(ctx, target, output, scan_type, no_parallel):
+def pipeline(ctx, target, output, scan_type, no_parallel, resume):
     """Run full automated scanning pipeline."""
     from bountykit.pipeline import run_full_pipeline
     _legal_check(ctx.obj["config"], target)
-    run_full_pipeline(target, output, scan_type=scan_type, parallel=not no_parallel)
+    run_full_pipeline(target, output, scan_type=scan_type, parallel=not no_parallel, resume=resume)
 
 
 # =============================================================================
@@ -818,6 +988,151 @@ def legal(ctx, target, scope, output):
         with open(out_path, "w") as f:
             json.dump(record, f, indent=2)
         console.print(f"[dim]Authorization record saved → {out_path}[/dim]")
+
+
+# =============================================================================
+# CONFIG COMMANDS
+# =============================================================================
+
+@main.group()
+def config():
+    """View and modify bountykit configuration."""
+    pass
+
+
+@config.command("show")
+@click.pass_context
+def config_show(ctx):
+    """Display current configuration."""
+    cfg = ctx.obj["config"]
+    table = Table(title="BountyKit Configuration", show_lines=True)
+    table.add_column("Section", style="bold cyan", width=20)
+    table.add_column("Key", style="white", width=25)
+    table.add_column("Value", style="green")
+    for section_name, section in cfg.model_dump().items():
+        if isinstance(section, dict):
+            for key, val in section.items():
+                table.add_row(section_name, key, str(val))
+        else:
+            table.add_row(section_name, "", str(section))
+    console.print(table)
+
+
+@config.command("set")
+@click.argument("key", required=True)
+@click.argument("value", required=True)
+@click.pass_context
+def config_set(ctx, key, value):
+    """Set a configuration value (e.g., 'config set scan.threads 20')."""
+    cfg = ctx.obj["config"]
+    parts = key.split(".")
+    if len(parts) == 2:
+        section, field_name = parts
+        section_obj = getattr(cfg, section, None)
+        if section_obj and hasattr(section_obj, field_name):
+            field_type = type(getattr(section_obj, field_name))
+            try:
+                setattr(section_obj, field_name, field_type(value))
+                cfg.save()
+                console.print(f"[green]Set {key} = {value}[/green]")
+            except (ValueError, TypeError) as e:
+                console.print(f"[red]Invalid value: {e}[/red]")
+        else:
+            console.print(f"[red]Unknown config key: {key}[/red]")
+    else:
+        console.print("[red]Key format: section.field (e.g., scan.threads)[/red]")
+
+
+# =============================================================================
+# VERSION COMMAND
+# =============================================================================
+
+@main.command()
+def version():
+    """Show bountykit version and system info."""
+    import platform
+    console.print(f"\n[bold cyan]BountyKit v{__version__}[/bold cyan]")
+    console.print(f"Python: {platform.python_version()}")
+    console.print(f"Platform: {platform.platform()}")
+
+    # Check external tools
+    tools = {"nuclei": "nuclei -version", "subfinder": "subfinder -version", "nmap": "nmap --version"}
+    for name, cmd in tools.items():
+        try:
+            import subprocess
+            result = subprocess.run(cmd.split(), capture_output=True, text=True, timeout=5)
+            status = "[green]✓[/green]" if result.returncode == 0 else "[red]✗[/red]"
+        except Exception:
+            status = "[yellow]?[/yellow]"
+        console.print(f"  {status} {name}")
+    console.print()
+
+
+# =============================================================================
+# REPORT GENERATE COMMAND
+# =============================================================================
+
+@main.command("report-generate")
+@click.option("--input", "-i", "input_dir", required=True, help="Results directory")
+@click.option("--format", "-f", "fmt", default="markdown",
+              type=click.Choice(["markdown", "json", "html", "pdf"]), help="Output format")
+@click.option("--output", "-o", default=None, help="Output file path")
+@click.pass_context
+def report_generate(ctx, input_dir, fmt, output):
+    """Generate a report from scan results."""
+    from bountykit.utils.report import generate_markdown_report, generate_html_report, generate_json_report
+    findings = _collect_findings(input_dir)
+    target = _extract_target(input_dir)
+    output_path = output or f"./results/report.{fmt if fmt != 'markdown' else 'md'}"
+    if fmt == "html":
+        generate_html_report(target, findings, output_path=output_path)
+    elif fmt == "json":
+        generate_json_report(target, findings, output_path=output_path)
+    else:
+        generate_markdown_report(target, findings, output_path=output_path)
+    console.print(f"[green]Report generated → {output_path}[/green]")
+
+
+# =============================================================================
+# VALIDATE LICENSE COMMAND
+# =============================================================================
+
+@main.command("validate-license")
+@click.pass_context
+def validate_license(ctx):
+    """Validate the bountykit license and configuration."""
+    from pathlib import Path
+    lic = Path(__file__).parent.parent.parent / "LICENSE"
+    if lic.exists():
+        console.print(f"[green]✓ LICENSE file found: {lic}[/green]")
+    else:
+        console.print("[yellow]LICENSE file not found in project root[/yellow]")
+    cfg = ctx.obj["config"]
+    if cfg.legal.require_auth:
+        console.print("[green]✓ Legal gate: ENABLED (auth required before scanning)[/green]")
+    else:
+        console.print("[red]✗ Legal gate: DISABLED — enable require_auth in config[/red]")
+
+
+# =============================================================================
+# CHECK UPDATES COMMAND
+# =============================================================================
+
+@main.command("check-updates")
+@click.pass_context
+def check_updates(ctx):
+    """Check for bountykit updates on PyPI."""
+    import requests
+    try:
+        resp = requests.get("https://pypi.org/pypi/bountykit/json", timeout=10)
+        latest = resp.json()["info"]["version"]
+        if latest == __version__:
+            console.print(f"[green]✓ Up to date (v{__version__})[/green]")
+        else:
+            console.print(f"[yellow]Update available: v{latest} (current: v{__version__})[/yellow]")
+            console.print("[dim]Run: pip install --upgrade bountykit[/dim]")
+    except Exception as e:
+        console.print(f"[red]Could not check updates: {e}[/red]")
 
 
 if __name__ == "__main__":

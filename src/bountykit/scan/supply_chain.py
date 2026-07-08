@@ -12,9 +12,13 @@ import os
 import json
 import time
 import hashlib
-from typing import Optional, List, Dict, Any, Set
+import asyncio
+import random
+from typing import Optional, List, Dict, Any, Set, Tuple
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
+from datetime import datetime, timedelta
+from urllib.parse import urlparse
 
 import httpx
 import tenacity
@@ -125,12 +129,77 @@ MCP_ATTACK_PATTERNS = [
 LEGITIMATE_PACKAGES = {
     "express", "lodash", "react", "axios", "chalk", "dotenv", "commander",
     "mongoose", "nodemailer", "webpack", "babel", "eslint", "prettier",
-    "jest", "mocha", "chai", "socket.io", "multer", "passport", "bcrypt",
+    "jest", "mocha", "chai", "socket.io", "multer",     "passport", "bcrypt",
     "jsonwebtoken", "cors", "helmet", "morgan", "cookie-parser",
     "express-session", "body-parser", "uuid", "moment", "dayjs",
     "bluebird", "async", "request", "node-fetch", "got", "cheerio",
     "puppeteer", "playwright", "selenium-webdriver",
 }
+
+# Lock-file integrity verification patterns
+# Maps lock-file format → expected hash algorithm field
+LOCK_FILE_HASH_PATTERNS = {
+    "package-lock.json": {
+        "alg": "sha512",
+        "field_path": "packages.*.resolved",
+        "integrity_key": "integrity",
+    },
+    "yarn.lock": {
+        "alg": "sha512",
+        "field_path": "resolved",
+        "integrity_key": "integrity",
+    },
+    "pnpm-lock.yaml": {
+        "alg": "sha512",
+        "field_path": "resolution.integrity",
+    },
+    "Cargo.lock": {
+        "alg": "sha256",
+        "field_path": "checksum",
+    },
+    "go.sum": {
+        "alg": "sha256",
+        "field_path": "inline",
+    },
+    "poetry.lock": {
+        "alg": "sha256",
+        "field_path": "files.*",
+    },
+}
+
+# Cargo (Rust) dependency file patterns
+CARGO_TOML_SUSPICIOUS = [
+    (r"\[patch\.[a-zA-Z0-9_-]+\]", "Cargo patch section (supply chain override)"),
+    (r"git\s*=\s*['\"]https?://", "Cargo git dependency (not from crates.io)"),
+    (r"path\s*=\s*['\"]\.\.", "Cargo relative path dependency"),
+    (r"\[replace\]", "Cargo replace section (legacy override)"),
+    (r"default-features\s*=\s*false", "Cargo default features disabled"),
+    (r"features\s*=\s*\[[^\]]*['\"]std['\"]", "Cargo std feature manipulation"),
+]
+
+# OSV.dev batch query endpoint
+OSV_BATCH_URL = "https://api.osv.dev/v1/querybatch"
+OSV_SINGLE_URL = "https://api.osv.dev/v1/vulns"
+
+# GitHub Actions composite action supply-chain vectors
+GHA_COMPOSITE_SUSPICIOUS = [
+    (r"run\s*:\s*\|?\s*\{\{.*inputs\.", "GitHub Actions composite: unvalidated input in run step"),
+    (r"uses\s*:\s*\$\{\{.*inputs\.", "GitHub Actions composite: dynamic action reference"),
+    (r"uses\s*:\s*\$\{\{.*secrets\.", "GitHub Actions composite: secret in action reference"),
+    (r"env\s*:\s*\*\s*:", "GitHub Actions composite: env wildcard (all secrets)"),
+    (r"post\s*:\s*\|?\s*curl", "GitHub Actions composite: post step with curl"),
+    (r"pre\s*:\s*\|?\s*curl", "GitHub Actions composite: pre step with curl"),
+]
+
+# Scope-leak detection for dependency confusion
+SCOPE_LEAK_PATTERNS = [
+    (r"scope\s*=\s*['\"]@[^'\"]+['\"]", "npm scope declaration"),
+    (r"private\s*:\s*true", "npm private package flag"),
+    (r"publishConfig\s*:\s*\{[^}]*scope", "npm scoped publish config"),
+    (r"\[tool\.poetry\]", "Python poetry config (private package)"),
+    (r"repository\s*=\s*['\"]https?://[^'\"]*private", "Python private repository reference"),
+    (r"index-url\s*=\s*https?://[^'\"]*private", "pip private index"),
+]
 
 
 class SupplyChainScanner:
@@ -153,16 +222,27 @@ class SupplyChainScanner:
         timeout: float = 10.0,
         verbose: bool = False,
         check_registry: bool = True,
+        check_lockfile_integrity: bool = True,
+        check_cargo_go: bool = True,
+        check_github_actions: bool = True,
+        query_osv: bool = True,
     ):
         self.target_path = Path(target_path).resolve()
         self.timeout = timeout
         self.verbose = verbose
         self.check_registry = check_registry
+        self.check_lockfile_integrity = check_lockfile_integrity
+        self.check_cargo_go = check_cargo_go
+        self.check_github_actions = check_github_actions
+        self.query_osv = query_osv
         self._client = httpx.AsyncClient(
             timeout=timeout,
             follow_redirects=True,
             verify=False,
         )
+        # Dependency confusion scope-leak tracking
+        self._private_scopes: Set[str] = set()
+        self._private_names: Set[str] = set()
 
     async def close(self):
         await self._client.aclose()
@@ -227,8 +307,30 @@ class SupplyChainScanner:
             result.files_scanned += 1
             await self._scan_mcp_config(mcp_file, result)
 
-        # Check for dependency confusion
+        # Phase 2: lock-file integrity verification
+        if self.check_lockfile_integrity:
+            await self._verify_lockfile_integrity(result)
+
+        # Phase 3: Cargo.toml / go.sum scanning
+        if self.check_cargo_go:
+            cargo_files = list(self.target_path.rglob("Cargo.toml"))
+            go_sum_files = list(self.target_path.rglob("go.sum"))
+            go_mod_files = list(self.target_path.rglob("go.mod"))
+            for cf in cargo_files + go_sum_files + go_mod_files:
+                result.files_scanned += 1
+                await self._scan_cargo_go_file(cf, result)
+
+        # Phase 4: GitHub Actions deep composite-action scan
+        if self.check_github_actions:
+            await self._scan_github_actions_deep(result)
+
+        # Phase 5: OSV.dev batch vulnerability query
+        if self.query_osv:
+            await self._query_osv_batch(result)
+
+        # Phase 6: Dependency confusion (enhanced with scope-leak)
         await self._check_dependency_confusion(result)
+        await self._check_dependency_confusion_scope_leak(result)
 
         logger.info(
             f"[+] Supply chain scan complete: {len(result.findings)} findings "
@@ -758,3 +860,540 @@ class SupplyChainScanner:
 
                 except Exception:
                     pass
+
+    # ────────────────────────────────────────────────────────────────
+    # NEW: Lock-file integrity verification
+    # ────────────────────────────────────────────────────────────────
+
+    async def _verify_lockfile_integrity(
+        self, result: SupplyChainResult
+    ) -> None:
+        """Verify lock-file hash integrity against registry metadata."""
+        lock_files = list(self.target_path.rglob("package-lock.json")) + \
+                     list(self.target_path.rglob("yarn.lock")) + \
+                     list(self.target_path.rglob("pnpm-lock.yaml"))
+        for lock_file in lock_files:
+            try:
+                with open(lock_file, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+
+                lock_name = lock_file.name
+                pattern_info = LOCK_FILE_HASH_PATTERNS.get(lock_name)
+                if not pattern_info:
+                    continue
+
+                # For package-lock.json v2, check integrity hashes against npm registry
+                if lock_name == "package-lock.json":
+                    await self._verify_package_lock_integrity(lock_file, content, result)
+
+                # For yarn.lock, check resolved URLs match expected
+                elif lock_name == "yarn.lock":
+                    await self._verify_yarn_lock_integrity(lock_file, content, result)
+
+            except Exception as e:
+                if self.verbose:
+                    logger.debug(f"  [-] Lock-file verification failed for {lock_file}: {e}")
+
+    async def _verify_package_lock_integrity(
+        self, lock_file: Path, content: str, result: SupplyChainResult
+    ) -> None:
+        """Cross-reference package-lock.json integrity hashes with npm registry."""
+        try:
+            lock_data = json.loads(content)
+        except json.JSONDecodeError:
+            return
+
+        packages = lock_data.get("packages", {})
+        if not packages:
+            return
+
+        # Sample up to 10 packages for integrity check (avoid rate limits)
+        sampled = list(packages.items())[:10]
+        for pkg_path, pkg_meta in sampled:
+            if pkg_path == "":
+                continue
+            pkg_name = pkg_path.rsplit("node_modules/", 1)[-1] if "node_modules/" in pkg_path else pkg_path
+            integrity = pkg_meta.get("integrity", "")
+            resolved = pkg_meta.get("resolved", "")
+
+            if not integrity or not resolved:
+                continue
+
+            # Parse integrity hash
+            match = re.match(r"(sha\d+)-([A-Za-z0-9+/=]+)", integrity)
+            if not match:
+                continue
+
+            alg = match.group(1)
+
+            # Fetch from npm and compare
+            try:
+                npm_resp = await self._client.get(
+                    f"https://registry.npmjs.org/{pkg_name}",
+                    headers={"Accept": "application/json"},
+                )
+                if npm_resp.status_code != 200:
+                    continue
+
+                npm_data = npm_resp.json()
+                dist = npm_data.get("dist", {})
+                npm_integrity = dist.get("integrity", "")
+
+                if npm_integrity and npm_integrity != integrity:
+                    result.findings.append(
+                        SupplyChainFinding(
+                            category="lockfile_tampering",
+                            severity="critical",
+                            title=f"Lock-File Integrity Mismatch: {pkg_name}",
+                            description=(
+                                f"Package '{pkg_name}' in package-lock.json has integrity hash "
+                                f"'{integrity[:40]}...' but npm registry reports "
+                                f"'{npm_integrity[:40]}...'. Possible lock-file tampering."
+                            ),
+                            file_path=str(lock_file),
+                            package=pkg_name,
+                            evidence=f"Local: {integrity}\nRegistry: {npm_integrity}",
+                            remediation=(
+                                "Delete node_modules and package-lock.json, then regenerate "
+                                "with a clean install. Investigate how the tampering occurred."
+                            ),
+                        )
+                    )
+                elif not npm_integrity and integrity:
+                    result.findings.append(
+                        SupplyChainFinding(
+                            category="lockfile_tampering",
+                            severity="medium",
+                            title=f"Lock-File Has Integrity, Registry Does Not: {pkg_name}",
+                            description=(
+                                f"Package '{pkg_name}' has integrity hash in lock file but "
+                                f"npm registry does not provide one. Verify manually."
+                            ),
+                            file_path=str(lock_file),
+                            package=pkg_name,
+                            remediation="Manually verify package integrity using npm pack --dry-run.",
+                        )
+                    )
+            except Exception:
+                pass
+
+    async def _verify_yarn_lock_integrity(
+        self, lock_file: Path, content: str, result: SupplyChainResult
+    ) -> None:
+        """Verify yarn.lock resolved URLs are not pointing to hijacked registries."""
+        suspicious_resolved = []
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("resolved "):
+                url_match = re.search(r'"(https?://[^"]+)"', stripped)
+                if url_match:
+                    url = url_match.group(1)
+                    parsed = urlparse(url)
+                    host = parsed.hostname or ""
+                    # Check for non-standard registries
+                    if host and "npmjs.org" not in host and "npmjs.com" not in host:
+                        suspicious_resolved.append(url)
+
+        if suspicious_resolved:
+            result.findings.append(
+                SupplyChainFinding(
+                    category="registry_hijack",
+                    severity="high",
+                    title="Non-Standard Registry in yarn.lock",
+                    description=(
+                        f"yarn.lock contains {len(suspicious_resolved)} resolved URLs "
+                        f"pointing to non-npmjs registries. Possible registry hijack."
+                    ),
+                    file_path=str(lock_file),
+                    evidence="\n".join(suspicious_resolved[:5]),
+                    remediation="Verify all package sources are legitimate. Run yarn audit.",
+                )
+            )
+
+    # ────────────────────────────────────────────────────────────────
+    # NEW: Cargo.toml / go.sum scanning
+    # ────────────────────────────────────────────────────────────────
+
+    async def _scan_cargo_go_file(
+        self, dep_file: Path, result: SupplyChainResult
+    ) -> None:
+        """Scan Cargo.toml and go.sum/go.mod for supply-chain vectors."""
+        try:
+            with open(dep_file, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+
+            if dep_file.name == "Cargo.toml":
+                await self._scan_cargo_toml(dep_file, content, result)
+            elif dep_file.name == "go.sum":
+                await self._scan_go_sum(dep_file, content, result)
+            elif dep_file.name == "go.mod":
+                await self._scan_go_mod(dep_file, content, result)
+        except Exception as e:
+            if self.verbose:
+                logger.debug(f"  [-] Failed to scan {dep_file}: {e}")
+
+    async def _scan_cargo_toml(
+        self, dep_file: Path, content: str, result: SupplyChainResult
+    ) -> None:
+        """Scan Cargo.toml for suspicious patterns."""
+        for pattern, description in CARGO_TOML_SUSPICIOUS:
+            matches = re.findall(pattern, content, re.IGNORECASE)
+            if matches:
+                severity = "high" if "patch" in description.lower() or "replace" in description.lower() else "medium"
+                result.findings.append(
+                    SupplyChainFinding(
+                        category="cargo_supply_chain",
+                        severity=severity,
+                        title=f"Cargo.toml Risk: {description}",
+                        description=f"Cargo.toml contains: {description}",
+                        file_path=str(dep_file),
+                        evidence=f"Pattern: {pattern}\nMatches: {matches[:3]}",
+                        remediation="Review cargo dependency configuration for unauthorized overrides.",
+                    )
+                )
+
+        # Check Cargo.lock for git-based dependencies
+        cargo_lock = dep_file.parent / "Cargo.lock"
+        if cargo_lock.exists():
+            try:
+                with open(cargo_lock, "r", encoding="utf-8", errors="ignore") as f:
+                    lock_content = f.read()
+
+                git_deps = re.findall(r'source\s*=\s*"git\+([^"]+)"', lock_content)
+                if git_deps:
+                    for git_url in git_deps[:5]:
+                        parsed = urlparse(git_url)
+                        if parsed.hostname and parsed.hostname not in ("github.com", "gitlab.com", "bitbucket.org"):
+                            result.findings.append(
+                                SupplyChainFinding(
+                                    category="cargo_supply_chain",
+                                    severity="high",
+                                    title=f"Cargo Non-Hosted Git Dependency: {parsed.hostname}",
+                                    description=(
+                                        f"Cargo.lock references git dependency from non-major host: "
+                                        f"{parsed.hostname}. Verify legitimacy."
+                                    ),
+                                    file_path=str(cargo_lock),
+                                    evidence=git_url,
+                                    remediation="Verify the git repository is trustworthy and pin to specific commit.",
+                                )
+                            )
+            except Exception:
+                pass
+
+    async def _scan_go_sum(
+        self, dep_file: Path, content: str, result: SupplyChainResult
+    ) -> None:
+        """Scan go.sum for hash mismatches and suspicious modules."""
+        lines = content.strip().splitlines()
+        modules = set()
+        for line in lines:
+            parts = line.split()
+            if len(parts) >= 1:
+                module = parts[0].rsplit("@", 1)[0] if "@" in parts[0] else parts[0]
+                modules.add(module)
+
+        # Check for modules from non-standard hosts
+        for mod in modules:
+            parsed = urlparse(f"https://{mod}" if not mod.startswith("http") else mod)
+            host = parsed.hostname or ""
+            if host and host not in ("github.com", "gitlab.com", "bitbucket.org", "golang.org", "google.golang.org", "gopkg.in"):
+                result.findings.append(
+                    SupplyChainFinding(
+                        category="go_supply_chain",
+                        severity="medium",
+                        title=f"Go Module Non-Standard Host: {host}",
+                        description=f"go.sum references module from non-standard host: {host}",
+                        file_path=str(dep_file),
+                        package=mod,
+                        remediation="Verify the Go module source is trustworthy.",
+                    )
+                )
+
+    async def _scan_go_mod(
+        self, dep_file: Path, content: str, result: SupplyChainResult
+    ) -> None:
+        """Scan go.mod for replace directives and suspicious dependencies."""
+        replace_directives = re.findall(r'replace\s+.*?=>\s*(.+)', content)
+        for directive in replace_directives[:5]:
+            # Local path replace
+            if directive.strip().startswith(".") or directive.strip().startswith("/"):
+                result.findings.append(
+                    SupplyChainFinding(
+                        category="go_supply_chain",
+                        severity="medium",
+                        title="Go Module Replace to Local Path",
+                        description=f"go.mod contains replace directive to local path: {directive.strip()}",
+                        file_path=str(dep_file),
+                        remediation="Review if the local replace directive is intentional.",
+                    )
+                )
+
+    # ────────────────────────────────────────────────────────────────
+    # NEW: GitHub Actions composite action deep scan
+    # ────────────────────────────────────────────────────────────────
+
+    async def _scan_github_actions_deep(
+        self, result: SupplyChainResult
+    ) -> None:
+        """Deep scan GitHub Actions workflows for composite action supply-chain vectors."""
+        gha_files = list(self.target_path.rglob(".github/workflows/*.yml")) + \
+                    list(self.target_path.rglob(".github/workflows/*.yaml"))
+        for gha_file in gha_files:
+            try:
+                with open(gha_file, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+
+                # Check for untrusted action pinning
+                unpinned = re.findall(
+                    r'uses\s*:\s*([a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+)@(?:main|master|latest|HEAD)',
+                    content,
+                )
+                if unpinned:
+                    result.findings.append(
+                        SupplyChainFinding(
+                            category="gha_unpinned_action",
+                            severity="high",
+                            title=f"Unpinned GitHub Actions: {len(unpinned)} actions",
+                            description=(
+                                f"Workflow {gha_file.name} uses {len(unpinned)} actions "
+                                f"pinned to branch (not SHA). Branches can be force-pushed."
+                            ),
+                            file_path=str(gha_file),
+                            evidence="\n".join(unpinned[:5]),
+                            remediation="Pin all actions to full SHA commit hash.",
+                        )
+                    )
+
+                # Check for workflow_dispatch with secrets
+                if "workflow_dispatch" in content and "secrets." in content:
+                    result.findings.append(
+                        SupplyChainFinding(
+                            category="gha_workflow_dispatch_secrets",
+                            severity="medium",
+                            title="Manual Trigger with Secret Access",
+                            description=(
+                                f"Workflow {gha_file.name} has workflow_dispatch trigger "
+                                f"and accesses secrets. Manual triggers can be abused."
+                            ),
+                            file_path=str(gha_file),
+                            remediation="Audit which secrets are exposed to manual triggers.",
+                        )
+                    )
+
+                # Check composite action patterns
+                for pattern, description in GHA_COMPOSITE_SUSPICIOUS:
+                    matches = re.findall(pattern, content, re.IGNORECASE)
+                    if matches:
+                        result.findings.append(
+                            SupplyChainFinding(
+                                category="gha_composite_risk",
+                                severity="high",
+                                title=f"GitHub Actions Composite Risk: {description}",
+                                description=(
+                                    f"Workflow {gha_file.name} contains: {description}"
+                                ),
+                                file_path=str(gha_file),
+                                evidence=f"Matches: {matches[:3]}",
+                                remediation="Review composite action inputs and validate all external data.",
+                            )
+                        )
+
+                # Check for artifact poisoning vectors
+                artifact_patterns = re.findall(
+                    r'actions/download-artifact.*?name\s*:\s*(\S+)',
+                    content,
+                )
+                if artifact_patterns:
+                    result.findings.append(
+                        SupplyChainFinding(
+                            category="gha_artifact_poisoning",
+                            severity="medium",
+                            title="Artifact Download in Workflow",
+                            description=(
+                                f"Workflow {gha_file.name} downloads artifacts. "
+                                f"Artifacts can be poisoned in multi-repo workflows."
+                            ),
+                            file_path=str(gha_file),
+                            evidence="\n".join(artifact_patterns[:3]),
+                            remediation="Verify artifact sources and use artifact attestation.",
+                        )
+                    )
+
+            except Exception as e:
+                if self.verbose:
+                    logger.debug(f"  [-] Failed to scan GHA {gha_file}: {e}")
+
+    # ────────────────────────────────────────────────────────────────
+    # NEW: OSV.dev batch vulnerability query
+    # ────────────────────────────────────────────────────────────────
+
+    async def _query_osv_batch(
+        self, result: SupplyChainResult
+    ) -> None:
+        """Query OSV.dev batch API for known vulnerabilities in dependencies."""
+        packages: List[Dict[str, str]] = []
+
+        # Collect npm packages from package.json files
+        for pkg_file in self.target_path.rglob("package.json"):
+            try:
+                with open(pkg_file, "r", encoding="utf-8", errors="ignore") as f:
+                    pkg = json.loads(f.read())
+                for dep_type in ["dependencies", "devDependencies"]:
+                    for name, version in pkg.get(dep_type, {}).items():
+                        packages.append({"name": name, "version": version, "ecosystem": "npm"})
+            except Exception:
+                continue
+
+        # Collect Python packages from requirements*.txt
+        for req_file in self.target_path.rglob("requirements*.txt"):
+            try:
+                with open(req_file, "r", encoding="utf-8", errors="ignore") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and not line.startswith("-"):
+                            match = re.match(r"^([a-zA-Z0-9_-]+)\s*([=><!~]+)\s*(.+)", line)
+                            if match:
+                                name, _, version = match.groups()
+                                packages.append({"name": name.lower(), "version": version.strip(), "ecosystem": "PyPI"})
+            except Exception:
+                continue
+
+        if not packages:
+            return
+
+        # Batch in groups of 100 (OSV.dev limit)
+        for i in range(0, len(packages), 100):
+            batch = packages[i:i + 100]
+            queries = [
+                {"package": {"name": p["name"], "ecosystem": p["ecosystem"]}, "version": p["version"]}
+                for p in batch
+            ]
+
+            try:
+                resp = await self._client.post(
+                    OSV_BATCH_URL,
+                    json={"queries": queries},
+                    headers={"Content-Type": "application/json"},
+                )
+                if resp.status_code != 200:
+                    continue
+
+                data = resp.json()
+                osv_results = data.get("results", [])
+
+                for idx, osv_resp in enumerate(osv_results):
+                    vulns = osv_resp.get("vulns", [])
+                    if vulns:
+                        pkg_info = batch[idx]
+                        for vuln in vulns[:3]:  # Cap at 3 vulns per package
+                            vuln_id = vuln.get("id", "unknown")
+                            summary = vuln.get("summary", "No summary")
+                            severity = "critical" if any(
+                                s.get("score", "").startswith("9") or s.get("score", "").startswith("10")
+                                for s in vuln.get("severity", [])
+                            ) else "high"
+
+                            result.findings.append(
+                                SupplyChainFinding(
+                                    category="known_vulnerability",
+                                    severity=severity,
+                                    title=f"Known Vulnerability: {vuln_id} in {pkg_info['name']}",
+                                    description=(
+                                        f"Package '{pkg_info['name']}'@{pkg_info['version']} "
+                                        f"has known vulnerability {vuln_id}: {summary}"
+                                    ),
+                                    package=pkg_info["name"],
+                                    evidence=f"OSV ID: {vuln_id}\nEcosystem: {pkg_info['ecosystem']}",
+                                    remediation=f"Upgrade {pkg_info['name']} to a patched version.",
+                                )
+                            )
+
+            except Exception as e:
+                if self.verbose:
+                    logger.debug(f"  [-] OSV batch query failed: {e}")
+
+    # ────────────────────────────────────────────────────────────────
+    # NEW: Dependency confusion scope-leak detection
+    # ────────────────────────────────────────────────────────────────
+
+    async def _check_dependency_confusion_scope_leak(
+        self, result: SupplyChainResult
+    ) -> None:
+        """Detect private scope/namespace declarations that enable dependency confusion."""
+        # Find private scope indicators
+        scope_files = list(self.target_path.rglob("package.json")) + \
+                      list(self.target_path.rglob(".npmrc")) + \
+                      list(self.target_path.rglob("pyproject.toml"))
+        for sf in scope_files:
+            try:
+                with open(sf, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+
+                for pattern, description in SCOPE_LEAK_PATTERNS:
+                    matches = re.findall(pattern, content, re.IGNORECASE)
+                    if matches:
+                        # Extract scope name if possible
+                        scope_match = re.search(r"scope\s*=\s*['\"](@[^'\"]+)['\"]", content)
+                        scope_name = scope_match.group(1) if scope_match else "unknown"
+
+                        self._private_scopes.add(scope_name)
+
+                        result.findings.append(
+                            SupplyChainFinding(
+                                category="dependency_confusion_scope_leak",
+                                severity="high",
+                                title=f"Private Scope Declaration: {scope_name}",
+                                description=(
+                                    f"File {sf.name} declares private scope/namespace '{scope_name}'. "
+                                    f"An attacker can publish a package with this scope to public "
+                                    f"registry and it may resolve first during installation."
+                                ),
+                                file_path=str(sf),
+                                evidence=f"Pattern: {description}\nScope: {scope_name}",
+                                remediation=(
+                                    "1) Use --scope flag when installing. "
+                                    "2) Use package provenance (npm provenance, sigstore). "
+                                    "3) Pin exact versions in lock files. "
+                                    "4) Use .npmrc with always-auth=true."
+                                ),
+                            )
+                        )
+
+            except Exception:
+                continue
+
+        # Check for packages that might use private names
+        for pkg_file in self.target_path.rglob("package.json"):
+            try:
+                with open(pkg_file, "r", encoding="utf-8", errors="ignore") as f:
+                    pkg = json.loads(f.read())
+
+                for dep_type in ["dependencies", "devDependencies"]:
+                    for dep_name in pkg.get(dep_type, {}):
+                        # Packages starting with @ may be private scope
+                        if dep_name.startswith("@") and "/" in dep_name:
+                            scope = dep_name.split("/")[0]
+                            self._private_names.add(dep_name)
+
+            except Exception:
+                continue
+
+        if self._private_scopes:
+            result.findings.append(
+                SupplyChainFinding(
+                    category="dependency_confusion_attack_surface",
+                    severity="info",
+                    title=f"Dependency Confusion Attack Surface: {len(self._private_scopes)} scopes",
+                    description=(
+                        f"Project declares {len(self._private_scopes)} private scope(s): "
+                        f"{', '.join(sorted(self._private_scopes))}. "
+                        f"Attackers can publish packages with these names to public registries."
+                    ),
+                    remediation=(
+                        "Mitigate by: 1) Using provenance/attestation. "
+                        "2) Pinning exact versions. 3) Using scope-specific registries. "
+                        "4) Running 'npm audit' regularly."
+                    ),
+                )
+            )

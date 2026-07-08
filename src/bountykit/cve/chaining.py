@@ -6,16 +6,24 @@ Covers ADVANCED_BUGBOUNTY_CVE.md Section 11:
 - Multi-step exploitation paths
 - MITRE ATT&CK mapping
 - Automated chain detection
+- NetworkX graph-based chain analysis
+- CVSS-weighted shortest path finding
 """
 
 import json
 import os
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple, Set
 from dataclasses import dataclass, field
 import time
 
 from rich.console import Console
+
+try:
+    import networkx as nx
+    HAS_NETWORKX = True
+except ImportError:
+    HAS_NETWORKX = False
 
 from bountykit.utils.logger import get_logger
 
@@ -183,6 +191,39 @@ KNOWN_CHAINS = [
         "severity": "critical",
         "attack_path": ["T1190", "T1059"],
         "products": ["Atlassian Confluence"],
+    },
+    # --- New chain templates (2026) ---
+    {
+        "name": "OAuth Token Theft to Admin Panel",
+        "cves": ["CVE-2024-XXXXX"],
+        "description": "Steal OAuth tokens via redirect_uri misconfig, access admin APIs",
+        "severity": "critical",
+        "attack_path": ["T1550", "T1078", "T1098"],
+        "products": ["OAuth 2.0 Implementations"],
+    },
+    {
+        "name": "SSTI to SSRF to Cloud Metadata",
+        "cves": ["CVE-2024-XXXXX"],
+        "description": "Template injection chained with SSRF to access cloud metadata endpoint",
+        "severity": "critical",
+        "attack_path": ["T1059", "T1190", "T1552"],
+        "products": ["Web Frameworks"],
+    },
+    {
+        "name": "LLM Prompt Injection to RCE",
+        "cves": ["CVE-2024-XXXXX"],
+        "description": "LLM tool-use abuse to execute arbitrary commands via agent pipeline",
+        "severity": "critical",
+        "attack_path": ["T1059", "T1204"],
+        "products": ["LLM Applications"],
+    },
+    {
+        "name": "Supply Chain Persistence",
+        "cves": ["CVE-2024-XXXXX"],
+        "description": "Malicious dependency persists via build cache and CI/CD backdoor",
+        "severity": "critical",
+        "attack_path": ["T1195.002", "T1059", "T1053"],
+        "products": ["CI/CD Pipelines", "Package Managers"],
     },
 ]
 
@@ -410,7 +451,7 @@ def build_attack_path(
         "phase": 1,
         "name": "Reconnaissance",
         "description": "Gather information about target",
-        "tools": ["nmap", "httpx", "nuclei", "subfinder"],
+        "tools": ["recon-ng", "theHarvester", "shodan", "amass", "subfinder", "nmap", "httpx"],
         "cves_applicable": [],
         "attack_id": recon_step.get("attack_id", ""),
     })
@@ -420,7 +461,7 @@ def build_attack_path(
         "phase": 2,
         "name": "Vulnerability Scanning",
         "description": "Identify vulnerable services",
-        "tools": ["nuclei", "nmap", "nikto"],
+        "tools": ["nuclei", "nmap --script vuln", "nikto", "zap-cli"],
         "cves_applicable": cves,
         "attack_id": "T1592",
     })
@@ -440,7 +481,7 @@ def build_attack_path(
         "phase": 4,
         "name": "Post-Exploitation",
         "description": "Escalate privileges and move laterally",
-        "tools": ["mimikatz", "bloodhound", "linpeas"],
+        "tools": ["mimikatz", "bloodhound", "crackmapexec", "linpeas", "winpeas", "empire", "covenant", "laZagne"],
         "cves_applicable": [],
         "attack_id": "T1068",
     })
@@ -519,20 +560,289 @@ def get_attack_techniques() -> dict:
     return ATTACK_TECHNIQUES
 
 
+# ─── NetworkX Graph-Based Chain Builder ────────────────────────────────────────
+
+
+@dataclass
+class ChainNode:
+    """A node in the attack graph (CVE, technique, or asset)."""
+
+    id: str
+    label: str
+    node_type: str  # "cve", "technique", "asset", "stage"
+    cvss: float = 0.0
+    metadata: Dict = field(default_factory=dict)
+
+
+@dataclass
+class ChainEdge:
+    """A directed edge between two nodes with CVSS-weighted cost."""
+
+    source: str
+    target: str
+    weight: float = 1.0
+    label: str = ""
+    metadata: Dict = field(default_factory=dict)
+
+
+class ChainBuilder:
+    """Builds and analyzes attack chains using a NetworkX directed graph.
+
+    Features:
+        - CVSS-weighted edges for shortest-path computation
+        - `from_search_results()` classmethod to hydrate from Nuclei/Shodan JSON
+        - Shortest-path from ``initial_access`` to ``exfil``
+        - Pre-built chain templates for common bug-bounty scenarios
+    """
+
+    def __init__(self) -> None:
+        self.graph = nx.DiGraph()
+        self._node_map: Dict[str, ChainNode] = {}
+
+    # ── construction helpers ────────────────────────────────────────────────
+
+    def add_node(self, node: ChainNode) -> None:
+        """Add a ChainNode and store it internally."""
+        self._node_map[node.id] = node
+        self.graph.add_node(
+            node.id,
+            label=node.label,
+            node_type=node.node_type,
+            cvss=node.cvss,
+            **node.metadata,
+        )
+
+    def add_edge(self, edge: ChainEdge) -> None:
+        """Add a weighted directed edge."""
+        self.graph.add_edge(
+            edge.source,
+            edge.target,
+            weight=edge.weight,
+            label=edge.label,
+            **edge.metadata,
+        )
+
+    def add_chain_template(self, template_name: str) -> int:
+        """Insert a predefined chain template into the graph.
+
+        Returns the number of edges added.
+        """
+        templates = {
+            "oauth_to_admin": [
+                ChainNode("open_redirect", "Open Redirect", "technique", 4.0),
+                ChainNode("oauth_steal", "OAuth Token Steal", "technique", 6.5),
+                ChainNode("admin_api", "Admin API Access", "stage", 9.0),
+                ChainNode("privesc", "Privilege Escalation", "stage", 8.5),
+            ],
+            "ssti_to_ssrf": [
+                ChainNode("ssti", "SSTI Injection", "technique", 7.5),
+                ChainNode("ssrf", "SSRF to Metadata", "technique", 8.0),
+                ChainNode("cloud_cred", "Cloud Credential Theft", "stage", 9.5),
+                ChainNode("rce", "Remote Code Execution", "stage", 9.8),
+            ],
+            "llm_to_rce": [
+                ChainNode("prompt_inject", "Prompt Injection", "technique", 6.0),
+                ChainNode("tool_abuse", "LLM Tool-Use Abuse", "technique", 7.5),
+                ChainNode("cmd_exec", "Command Execution", "stage", 9.5),
+            ],
+            "supply_chain_to_persistence": [
+                ChainNode("dep_compromise", "Dependency Compromise", "technique", 8.0),
+                ChainNode("build_inject", "Build Pipeline Injection", "technique", 8.5),
+                ChainNode("cache_poison", "Build Cache Poisoning", "stage", 9.0),
+                ChainNode("backdoor", "Persistent Backdoor", "stage", 9.8),
+            ],
+        }
+
+        nodes = templates.get(template_name, [])
+        if not nodes:
+            logger.warning("Unknown chain template: %s", template_name)
+            return 0
+
+        for node in nodes:
+            self.add_node(node)
+
+        edges_added = 0
+        for i in range(len(nodes) - 1):
+            edge = ChainEdge(
+                source=nodes[i].id,
+                target=nodes[i + 1].id,
+                weight=max(0.1, 11.0 - (nodes[i].cvss + nodes[i + 1].cvss) / 2),
+                label=f"{nodes[i].label} → {nodes[i + 1].label}",
+            )
+            self.add_edge(edge)
+            edges_added += 1
+
+        return edges_added
+
+    # ── data hydration ──────────────────────────────────────────────────────
+
+    @classmethod
+    def from_search_results(cls, results: List[Dict]) -> "ChainBuilder":
+        """Create a ChainBuilder from Nuclei / Shodan JSON result dicts.
+
+        Each dict should contain at minimum::
+
+            {"id": "CVE-2024-1234", "name": "...", "severity": "critical",
+             "info": {"cvss": 9.8}}
+
+        Nodes are created per CVE and grouped by their ``vulnerability-class``
+        (or inferred from severity).  Edges connect CVEs that share the same
+        ``matched-at`` host.
+        """
+        builder = cls()
+        severity_cvss = {
+            "critical": 9.5,
+            "high": 7.5,
+            "medium": 5.0,
+            "low": 3.0,
+            "info": 0.5,
+        }
+
+        host_to_cves: Dict[str, List[str]] = {}
+
+        for result in results:
+            cve_id = result.get("id", result.get("cve_id", ""))
+            if not cve_id:
+                continue
+
+            name = result.get("name", result.get("description", cve_id))
+            severity = result.get("severity", result.get("info", {}).get("severity", "medium"))
+            cvss = result.get("info", {}).get("cvss", severity_cvss.get(severity, 5.0))
+            host = result.get("matched-at", result.get("host", "unknown"))
+
+            node = ChainNode(
+                id=cve_id,
+                label=name[:80],
+                node_type="cve",
+                cvss=cvss,
+                metadata={"severity": severity, "host": host},
+            )
+            builder.add_node(node)
+            host_to_cves.setdefault(host, []).append(cve_id)
+
+        # Connect CVEs on the same host with edges weighted by CVSS proximity
+        for host, cves in host_to_cves.items():
+            for i in range(len(cves)):
+                for j in range(i + 1, len(cves)):
+                    cve_a = builder._node_map.get(cves[i])
+                    cve_b = builder._node_map.get(cves[j])
+                    if cve_a and cve_b:
+                        weight = max(0.1, 11.0 - (cve_a.cvss + cve_b.cvss) / 2)
+                        builder.add_edge(ChainEdge(
+                            source=cves[i],
+                            target=cves[j],
+                            weight=weight,
+                            label="Same host",
+                        ))
+
+        return builder
+
+    # ── graph queries ───────────────────────────────────────────────────────
+
+    def shortest_path(
+        self,
+        source: str = "initial_access",
+        target: str = "exfil",
+    ) -> Optional[List[str]]:
+        """Find the CVSS-weighted shortest path between two node IDs.
+
+        Returns a list of node IDs forming the path, or ``None``.
+        """
+        if not HAS_NETWORKX:
+            logger.warning("networkx not installed – shortest_path unavailable")
+            return None
+
+        if source not in self.graph or target not in self.graph:
+            # Try to find closest matches
+            source = self._fuzzy_match_node(source)
+            target = self._fuzzy_match_node(target)
+            if not source or not target:
+                return None
+
+        try:
+            return nx.shortest_path(self.graph, source, target, weight="weight")
+        except nx.NetworkXNoPath:
+            return None
+
+    def _fuzzy_match_node(self, query: str) -> Optional[str]:
+        """Find a node ID that best matches the query string."""
+        query_lower = query.lower()
+        for node_id, node in self._node_map.items():
+            if query_lower in node_id.lower() or query_lower in node.label.lower():
+                return node_id
+        return None
+
+    def all_paths(
+        self,
+        source: str,
+        target: str,
+        max_depth: int = 8,
+    ) -> List[List[str]]:
+        """Enumerate all simple paths from source to target up to *max_depth*."""
+        if not HAS_NETWORKX:
+            return []
+
+        source = self._fuzzy_match_node(source)
+        target = self._fuzzy_match_node(target)
+        if not source or not target:
+            return []
+
+        return list(nx.all_simple_paths(self.graph, source, target, cutoff=max_depth))
+
+    def critical_paths(self, top_n: int = 5) -> List[Dict]:
+        """Return the *top_n* highest-impact paths ranked by cumulative CVSS."""
+        paths_with_score = []
+        # Use topological sort to find all source-to-sink paths
+        if not HAS_NETWORKX:
+            return []
+
+        sources = [n for n in self.graph.nodes() if self.graph.in_degree(n) == 0]
+        sinks = [n for n in self.graph.nodes() if self.graph.out_degree(n) == 0]
+
+        for src in sources:
+            for dst in sinks:
+                for path in nx.all_simple_paths(self.graph, src, dst, cutoff=10):
+                    score = sum(
+                        self._node_map[n].cvss
+                        for n in path
+                        if n in self._node_map
+                    )
+                    paths_with_score.append({"path": path, "score": score})
+
+        paths_with_score.sort(key=lambda p: p["score"], reverse=True)
+        return paths_with_score[:top_n]
+
+    def export_graph(self, filepath: str) -> None:
+        """Export the graph to a JSON file for visualization."""
+        data = nx.node_link_data(self.graph)
+        Path(filepath).parent.mkdir(parents=True, exist_ok=True)
+        with open(filepath, "w") as f:
+            json.dump(data, f, indent=2)
+        console.print(f"  [dim]Graph exported to {filepath}[/dim]")
+
+    def stats(self) -> Dict:
+        """Return basic graph statistics."""
+        return {
+            "nodes": self.graph.number_of_nodes(),
+            "edges": self.graph.number_of_edges(),
+            "has_networkx": HAS_NETWORKX,
+        }
+
+
 def _get_exploit_tools(cve_types: dict) -> list:
     """Determine exploitation tools based on CVE types."""
-    tools = ["metasploit"]
+    tools = ["metasploit", "searchsploit"]
 
     type_to_tool = {
-        "rce": ["metasploit", "custom_exploits"],
-        "ssrf": ["curl", "ssrfmap"],
-        "sql_injection": ["sqlmap", "havij"],
-        "xss": ["dalfox", "xsser"],
-        "deserialization": ["ysoserial", "jexboss"],
-        "lfi": ["liffy", "dotdotpwn"],
-        "auth_bypass": ["hydra", "custom_scripts"],
+        "rce": ["metasploit", "searchsploit", "msfconsole stagers", "msfvenom", "veil-evasion"],
+        "ssrf": ["curl", "ssrfmap", "collaborator"],
+        "sql_injection": ["sqlmap --batch", "ghauri"],
+        "xss": ["dalfox", "xsser", "xsstrike"],
+        "deserialization": ["ysoserial", "jexboss", "pwntools"],
+        "lfi": ["liffy", "dotdotpwn", "fimap"],
+        "auth_bypass": ["hydra", "medusa", "ncrack"],
         "file_read": ["dotdotpwn", "custom_scripts"],
-        "privilege_escalation": ["linpeas", "winpeas", "linenum"],
+        "privilege_escalation": ["linpeas", "winpeas", "dirtycow_exploit"],
         "open_redirect": ["redirect_mapper", "custom_scripts"],
     }
 
