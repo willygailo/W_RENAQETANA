@@ -16,6 +16,12 @@ from bountykit.scan.headers import analyze_headers
 from bountykit.scan.waf import detect_waf, test_waf_bypass, WAFScanner
 from bountykit.scan.websocket import WebSocketScanner, scan_websocket
 from bountykit.scan.cloud_misconfig import CloudMisconfigurationScanner
+from bountykit.scan.ssti import SSTITester
+from bountykit.scan.smuggling import HTTPSmugglingTester, SmugglingResult
+from bountykit.scan.network import NetworkScanner, scan_network
+from bountykit.scan.llm import LLMTester
+from bountykit.scan.supply_chain import SupplyChainScanner
+from bountykit.scan.race_condition import RaceConditionTester
 from bountykit.scan.template_builder import build_sqli_template, build_xss_template, build_idor_template, validate_template
 
 # Aliases
@@ -29,4 +35,7 @@ __all__ = [
     "scan_takeover", "analyze_headers", "detect_waf", "test_waf_bypass",
     "WAFScanner", "WFBDetector", "WebSocketScanner", "scan_websocket", "CloudMisconfigurationScanner",
     "build_sqli_template", "build_xss_template", "build_idor_template", "validate_template",
+    "SSTITester", "HTTPSmugglingTester", "SmugglingResult",
+    "NetworkScanner", "scan_network",
+    "LLMTester", "SupplyChainScanner", "RaceConditionTester",
 ]

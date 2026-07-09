@@ -16,7 +16,6 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 import httpx
-import tenacity
 
 from bountykit.utils.logger import get_logger
 

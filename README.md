@@ -15,7 +15,7 @@
 
 ### Advanced Bug Bounty & CVE Research Framework
 
-**One CLI. Every attack. Production-grade.**
+**One CLI. Every attack. Production-grade. Legally enforced.**
 
 <br>
 
@@ -31,7 +31,7 @@
 
 ---
 
-> ⚠️ **Disclaimer:** BountyKit is an authorized security research tool. You **must** have explicit written permission before scanning any target. Unauthorized use is illegal and punishable under computer crime laws. See [LICENSE](LICENSE) and [LEGAL](LEGAL.md) for full terms.
+> ⚠️ **Disclaimer:** BountyKit is an authorized security research tool. You **must** have explicit written permission before scanning any target. Unauthorized use is illegal. See [LICENSE](LICENSE) and [LEGAL](LEGAL.md) for full terms.
 
 ---
 
@@ -41,54 +41,54 @@
 <tr>
 <td width="50%" valign="top">
 
-### 🛡️ Security
-- **20 scanner modules**
-- Network, Cloud, LLM, Supply Chain
-- SSTI, Race Conditions, WAF Bypass
+### 🛡️ 20 Scanners
+- XSS, SQLi, SSRF, SSTI, GraphQL, API
+- WAF bypass, HTTP smuggling, race conditions
+- Supply chain, LLM/AI injection, WebSocket
 
 </td>
 <td width="50%" valign="top">
 
 ### 🔍 CVE Intelligence
 - Real-world exploit chains
-- Graph-based engine
-- CVSS scoring & patch diff
+- Graph-based attack path engine
+- CVSS scoring & patch diff analysis
 
 </td>
 </tr>
 <tr>
 <td width="50%" valign="top">
 
-### ☁️ Cloud Security
-- AWS, Azure, GCP, Kubernetes
-- Firebase, Lambda, Docker
-- Multi-provider scanning
+### ☁️ Multi-Cloud Security
+- AWS, Azure, GCP
+- S3, IAM, Lambda, GCS, Blob, K8s
+- Metadata endpoint enumeration
 
 </td>
 <td width="50%" valign="top">
 
 ### ⚙️ Pipeline Engine
-- Phase-based pipeline
-- Async concurrency
-- Resume from crash
+- Phase-based orchestration
+- Async concurrency (cap 5)
+- Resume from crash with state file
 
 </td>
 </tr>
 <tr>
 <td width="50%" valign="top">
 
-### 🚦 Rate Limiting
-- Configurable requests/second
-- Per-target throttling
-- DoH fallback support
+### 🔐 Legal Compliance
+- Cryptographic scope engine (Ed25519)
+- Tamper-proof hash-chain audit log
+- Bug bounty platform API integration
 
 </td>
 <td width="50%" valign="top">
 
 ### 📊 Reports
 - JSON, Markdown, HTML
-- Executive summary
-- Structured output
+- Risk scoring & severity summary
+- Executive-ready output
 
 </td>
 </tr>
@@ -118,35 +118,19 @@ pip install -e ".[dev]"
 </details>
 
 <details>
-<summary><b>🐳 Docker</b></summary>
+<summary><b>🔐 Crypto (optional — for Ed25519 signing)</b></summary>
 
 ```bash
-# Start Docker daemon (if not running)
-sudo systemctl start docker
-sudo systemctl status docker
-
-# Build & run
-docker build -t bountykit .
-docker run --rm bountykit version
-
-# Scan with Docker (results persist to ./results on your host)
-docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/results" \
-  bountykit scan xss --url https://example.com
+pip install bountykit[crypto]
 ```
-
-> 💡 **Tip:** Add your user to the `docker` group to avoid `sudo`:
-> ```bash
-> sudo usermod -aG docker $USER
-> newgrp docker
-> ```
 </details>
 
 <details>
-<summary><b>🔬 Nuclei Integration (optional)</b></summary>
+<summary><b>🐳 Docker</b></summary>
 
 ```bash
-go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
-nuclei -update-templates
+docker build -t bountykit .
+docker run --rm bountykit version
 ```
 </details>
 
@@ -158,179 +142,19 @@ nuclei -update-templates
 # 🔍 Full recon & scan
 bountykit pipeline --target https://example.com --scan-type full
 
-# 🎯 Scan for specific vuln
+# 🎯 Scan for a specific vuln
 bountykit scan ssti --target https://example.com
 
 # 🔎 Monitor CVEs for a technology
-bountykit cve monitor --tech "nginx"
+bountykit cve monitor --tech nginx
 
 # ☁️ Check cloud misconfig
 bountykit cloud aws --metadata
 
-# 📊 Generate report
-bountykit report --format html --input ./results
+# 🔐 Authorize & audit
+bountykit legal authorize --target example.com
+bountykit legal audit
 ```
-
----
-
-## 📋 Copy-Paste Commands
-
-Ready-to-run one-liners. Just copy, paste, and replace `https://example.com` with your authorized target.
-
-<details open>
-<summary><b>🎯 Scanners</b></summary>
-
-```bash
-bountykit scan xss  --url https://example.com
-bountykit scan sqli --url https://example.com
-bountykit scan ssrf --target https://example.com
-bountykit scan ssti --target https://example.com
-bountykit scan graphql --target https://example.com
-bountykit scan api --target https://example.com
-bountykit scan oauth --target https://example.com
-bountykit scan ssrf --target https://example.com --techniques dns_rebinding
-bountykit scan race --target https://example.com
-bountykit scan waf --target https://example.com
-bountykit scan takeover --target https://example.com
-bountykit scan llm --target https://example.com
-
-# Fast default — Phase 1 + Phase 4 only (what you were running)
-bountykit scan websocket --target https://example.com
-
-# Full real-world attack surface
-bountykit scan websocket --target https://example.ph --deep
-
-# Deep but skip TLD variants (just subdomain brute)
-bountykit scan websocket --target https://example.com --deep --no-tld
-
-# Tune timeout for slow targets
-bountykit scan websocket --target https://example.gov --deep --timeout 15
-```
-</details>
-
-<details>
-<summary><b>🔎 Reconnaissance</b></summary>
-
-```bash
-bountykit recon passive --target example.com
-bountykit recon active --target example.com
-bountykit recon subdomains --target example.com
-bountykit recon js --target https://example.com
-bountykit recon endpoints --target https://example.com
-bountykit recon crawl --target https://example.com
-bountykit recon iot --target example.com
-bountykit recon mobile --apk ./app.apk
-bountykit recon full --target example.com
-```
-</details>
-
-<details>
-<summary><b>🧠 CVE Intelligence</b></summary>
-
-```bash
-bountykit cve monitor --tech "apache"
-bountykit cve chain --cve-ids CVE-2024-1234 --target https://example.com
-bountykit cve patchdiff --repo https://github.com/owner/repo --old v1.0 --new v1.1
-```
-</details>
-
-<details>
-<summary><b>☁️ Cloud Security</b></summary>
-
-```bash
-bountykit cloud aws --metadata
-bountykit cloud aws --bucket my-bucket-name
-bountykit scan cloud-misconfig -p aws
-bountykit advanced cloud -p aws
-```
-</details>
-
-<details>
-<summary><b>🚀 Pipeline & Reports</b></summary>
-
-```bash
-bountykit pipeline --target https://example.com --scan-type full
-bountykit pipeline --target https://example.com --scan-type quick
-bountykit pipeline --target https://example.com --scan-type advanced --no-parallel
-bountykit pipeline --target https://example.com --resume
-
-bountykit report --format json     --input ./results --output report.json
-bountykit report --format html     --input ./results --output report.html
-bountykit report --format markdown --input ./results --output report.md
-```
-</details>
-
-<details>
-<summary><b>🛠️ Utility & Legal</b></summary>
-
-```bash
-bountykit setup                 # Install & verify external tools
-bountykit version               # Show version & tool status
-bountykit config show          # View current config
-bountykit config set scan.threads 20
-bountykit legal --target https://example.com   # Check authorization
-bountykit check-updates        # Check PyPI for new version
-```
-</details>
-
-<details>
-<summary><b>🐳 Docker — Advanced Attack Tactics</b></summary>
-
-> 💡 **Why the extra flags?** `--rm` deletes the container (and any results inside it) when done. `-v "$PWD/results:/app/results"` mounts your local folder so JSON reports survive. `-u "$(id -u):$(id -g)"` writes files as your user (not root), and `-e HOME=/tmp` gives the tool a writable place for its config — without it you get `PermissionError: /.bountykit`.
-
-```bash
-# Build the image
-docker build -t bountykit .
-
-# SSTI — 20+ engines, polyglot probes, RCE chains
-docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/results" \
-  bountykit scan ssti --target https://example.com
-
-# HTTP smuggling — CL.TE, TE.CL, cache poisoning
-docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/results" \
-  bountykit scan smuggle --target https://example.com
-
-# Race conditions — H2 single-packet, JWT race
-docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/results" \
-  bountykit scan race --target https://example.com
-
-# WAF detection + 15 bypass techniques
-docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/results" \
-  bountykit scan waf --target https://example.com
-
-# Supply chain — malicious packages, typosquatting, GHA hijack
-docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/results" \
-  bountykit scan supply-chain --target https://example.com
-
-# WebSocket — CSWSH, injection, DoS, auth bypass, subprotocol fuzzing
-docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/results" \
-  bountykit scan websocket --target https://example.com
-
-# LLM/AI — prompt injection, RAG poisoning, tool hijack
-docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/results" \
-  bountykit scan llm --target https://example.com
-
-# Advanced module: race condition & business logic
-docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/results" \
-  bountykit advanced race --target https://example.com
-
-# Advanced module: multi-cloud (AWS/GCP/Azure)
-docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/results" \
-  bountykit advanced cloud -p aws
-
-# Advanced module: HTTP smuggling & cache poisoning
-docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/results" \
-  bountykit advanced smuggle --target https://example.com
-
-# Full advanced pipeline (no parallelism)
-docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/results" \
-  bountykit pipeline --target https://example.com --scan-type advanced --no-parallel
-
-# Generate HTML report from results
-docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/results" \
-  bountykit report --format html --input /app/results --output /app/results/report.html
-```
-</details>
 
 ---
 
@@ -338,56 +162,28 @@ docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/result
 
 ### 🎯 Scanners
 
-<table>
-<tr><td>
-
 | Command | Description |
 |---------|-------------|
 | `scan xss` | Reflected, stored, and DOM-based XSS detection |
-| `scan sqli` | SQL injection with time-based, boolean, and error-based payloads |
+| `scan sqli` | SQL injection with time-based, boolean, error-based payloads |
 | `scan ssrf` | Server-side request forgery with DNS rebinding |
 | `scan ssti` | SSTI detection — 20+ engines, polyglot probes, RCE chains |
-
-</td><td>
-
-| Command | Description |
-|---------|-------------|
-| `scan graphql` | GraphQL security — introspection, batching, query complexity |
-| `scan api` | Test API security — REST, GraphQL, OWASP Top 10 |
-| `scan oauth` | OAuth/JWT security — redirect URI, token theft, JWT analysis |
-| `scan network` | Network-layer attacks — ARP spoof, DNS rebinding, TLS downgrade, BGP hijack, SNMP |
-
-</td></tr>
-<tr><td>
-
-| Command | Description |
-|---------|-------------|
+| `scan graphql` | GraphQL security — introspection, batching, complexity |
+| `scan api` | API security — REST, GraphQL, OWASP Top 10 |
+| `scan oauth` | OAuth/JWT — redirect URI, token theft, JWT analysis |
+| `scan network` | Network-layer — ARP spoof, DNS rebinding, TLS downgrade |
 | `scan headers` | Security header and cookie audit |
-| `scan deserialization` | Deserialization vulnerabilities — Java, PHP, .NET |
+| `scan deserialization` | Java, PHP, .NET deserialization detection |
 | `scan takeover` | Subdomain takeover across 72 services with DoH fallback |
-| `scan smuggle` | HTTP smuggling — CL.TE, TE.CL, TE.TE, cache poisoning, host injection |
-
-</td><td>
-
-| Command | Description |
-|---------|-------------|
+| `scan smuggle` | HTTP smuggling — CL.TE, TE.CL, cache poisoning |
 | `scan race` | Race conditions — H2 single-packet, JWT race, Turbo Intruder |
 | `scan waf` | WAF detection + 15 bypass techniques |
-| `scan supply-chain` | Supply chain — malicious packages, typosquatting, GHA hijack |
-| `scan llm` | LLM/AI security — prompt injection, RAG poisoning, tool hijack |
-| `scan websocket` | WebSocket security — CSWSH, injection, DoS, auth bypass, subprotocol fuzzing |
-
-</td></tr>
-<tr><td colspan="2">
-
-| Command | Description |
-|---------|-------------|
-| `scan cloud-misconfig` | Cloud misconfig — S3, GCS, Azure Blob, K8s, Firebase, Lambda, EC2 |
+| `scan supply-chain` | Supply chain — malicious packages, typosquatting, CI/CD |
+| `scan llm` | LLM/AI — prompt injection, RAG poisoning, tool hijack |
+| `scan websocket` | WebSocket — CSWSH, injection, DoS, auth bypass |
+| `scan cloud-misconfig` | Cloud misconfig — S3, GCS, Azure Blob, K8s, Firebase |
 | `scan nuclei` | Nuclei scanner — severity filter, template selection |
 | `scan template` | Generate Nuclei templates for specific vulnerabilities |
-
-</td></tr>
-</table>
 
 ---
 
@@ -403,7 +199,7 @@ docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/result
 | `recon crawl` | Deep crawler with JavaScript rendering |
 | `recon iot` | IoT discovery — Shodan, Censys |
 | `recon mobile` | Mobile app analysis (APK/IPA, secrets, endpoints) |
-| `recon full` | Full recon — combines all recon modules |
+| `recon full` | Full recon pipeline — combines all modules |
 
 ---
 
@@ -411,7 +207,9 @@ docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/result
 
 | Command | Description |
 |---------|-------------|
+| `cve search` | Search CVEs by keyword, year, severity, or CPE (`--keyword`, `--year`, `--severity`, `--cpe`) |
 | `cve monitor` | Monitor technologies for new CVEs (`--tech`, `--notify`) |
+| `cve pocs` | Fetch known PoCs for a CVE ID (`--cve-id`) |
 | `cve chain` | Build exploit chains with graph engine and CVSS scoring (`--cve-ids`, `--target`) |
 | `cve patchdiff` | Patch diff analysis to find introduced vulnerabilities (`--repo`, `--old`, `--new`) |
 
@@ -422,6 +220,19 @@ docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/result
 | Command | Description |
 |---------|-------------|
 | `cloud aws` | Test AWS misconfigurations (SSRF to metadata, S3 bucket enumeration) |
+
+---
+
+### 🔐 Legal Compliance
+
+| Command | Description |
+|---------|-------------|
+| `legal authorize` | Check authorization for a target against scope |
+| `legal scope` | Manage signed scope files (show, verify, generate keys) |
+| `legal audit` | View tamper-proof audit trail with chain verification |
+| `legal platform` | Fetch scope from HackerOne / Bugcrowd APIs |
+| `legal report` | Generate compliance report from audit trail |
+| `legal techniques` | Show technique classification tree (info → destructive) |
 
 ---
 
@@ -437,20 +248,6 @@ docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/result
 
 ---
 
-### ⚡ Advanced Testing
-
-| Command | Description |
-|---------|-------------|
-| `advanced llm` | LLM/AI security — prompt injection, SSRF, skill poisoning |
-| `advanced supplychain` | Supply chain — malicious packages, typosquatting, CI/CD |
-| `advanced race` | Race condition & business logic testing |
-| `advanced smuggle` | HTTP smuggling & cache poisoning |
-| `advanced ssti` | SSTI — 20+ template engines |
-| `advanced cloud` | Multi-cloud security — AWS, GCP, Azure |
-| `advanced websocket` | WebSocket security — CSWSH, injection, DoS, auth bypass |
-
----
-
 ### 🛠️ Utility Commands
 
 | Command | Description |
@@ -459,20 +256,66 @@ docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/results:/app/result
 | `version` | Show version and check external tools |
 | `config show` | View current configuration |
 | `config set <key> <value>` | Set config value (e.g., `scan.threads 20`) |
-| `report` | Generate report (markdown / json / html) |
-| `report-generate` | Alias for report generation |
-| `legal` | Check legal authorization for a target |
+| `report` / `report-generate` | Generate report (markdown / json / html) |
 | `validate-license` | Verify LICENSE file and legal gate |
 | `check-updates` | Check PyPI for new version |
+
+---
+
+## 🔐 Legal Compliance System
+
+BountyKit features a cryptographic scope engine designed for authorized testing:
+
+```bash
+# Generate Ed25519 keypair
+bountykit legal scope --generate-keys
+
+# Sign a scope file
+bountykit legal scope --sign --scope scope.yaml
+
+# Check authorization
+bountykit legal authorize --target example.com
+
+# Verify audit log integrity
+bountykit legal audit --verify
+
+# Fetch scope from bug bounty platform
+bountykit legal platform --platform hackerone --program myprogram --user myhandle
+
+# Generate compliance report
+bountykit legal report --target example.com
+```
+
+### Audit Trail
+
+Every action is logged to a signed hash-chain. Use `--verify` to detect tampering:
+
+```bash
+bountykit legal audit                    # View last 7 days
+bountykit legal audit --target example.com  # Filter by target
+bountykit legal audit --verify             # Verify chain integrity
+```
+
+### Technique Classification
+
+Techniques are ranked from safe to dangerous:
+
+| Class | Examples |
+|-------|----------|
+| `INFO` | whois, dns_lookup, certificate_search |
+| `PASSIVE` | crt_sh, wayback, github_dork, shodan |
+| `ACTIVE` | port_scan, http_probe, crawl, waf_detection |
+| `AGGRESSIVE` | sqli, xss, ssrf, llm_injection, supply_chain |
+| `DESTRUCTIVE` | rce, dos, webshell, privilege_escalation |
 
 ---
 
 ## 📊 Reports
 
 ```bash
-bountykit report --format json     --input ./results --output report.json
-bountykit report --format markdown --input ./results --output report.md
-bountykit report --format html     --input ./results --output report.html
+bountykit report-generate --input ./results --format markdown --output report.md
+bountykit report-generate --input ./results --format html     --output report.html
+bountykit report-generate --input ./results --format json     --output report.json
 ```
 
 ---
@@ -480,10 +323,10 @@ bountykit report --format html     --input ./results --output report.html
 ## ⚙️ Configuration
 
 ```bash
-bountykit config show                    # 👁️ View current config
-bountykit config set scan.threads 20     # 🔧 Scanning threads
-bountykit config set scan.timeout 30     # ⏱️ Request timeout (seconds)
-bountykit config set legal.rate_limit 5  # 🚦 Requests per second
+bountykit config show                    # View current config
+bountykit config set scan.threads 20     # Scanning threads
+bountykit config set scan.timeout 30     # Request timeout (seconds)
+bountykit config set legal.safe_mode on  # Aggressive techniques blocked
 ```
 
 ---
@@ -502,9 +345,10 @@ pip install -e ".[dev]"
 </details>
 
 <details>
-<summary><b>Run Tests</b></summary>
+<summary><b>Lint & Test</b></summary>
 
 ```bash
+ruff check src/
 pytest tests/ -v
 ```
 </details>
@@ -512,50 +356,39 @@ pytest tests/ -v
 ### 📁 Project Layout
 
 ```
-bountykit/
-├── 📄 cli.py        — CLI entry point
-├── 📄 config.py     — Configuration management
-├── 📄 pipeline.py   — Pipeline orchestrator
-├── 📁 scan/         — 🔍 Vulnerability scanners
-├── 📁 cve/          — 🧠 CVE intelligence
-├── 📁 cloud/        — ☁️ Cloud misconfiguration
-├── 📁 recon/        — 🎯 Reconnaissance
-└── 📁 utils/        — 🛠️ Reports, logging, legal
+src/bountykit/
+├── cli.py              CLI entry point (23 commands)
+├── config.py           Pydantic configuration model
+├── pipeline.py         Async dependency-graph pipeline
+├── scan/               20 vulnerability scanners
+├── cve/                CVE monitoring, chaining, patch diff
+├── cloud/              AWS + multi-cloud security
+├── recon/              9 reconnaissance modules
+├── report/             Markdown report generation
+├── utils/
+│   ├── legal.py        Cryptographic scope engine + audit log
+│   ├── report.py       HTML/JSON/Markdown report builder
+│   ├── logger.py       Rich logging setup
+│   ├── validator.py    Target, URL, severity validation
+│   └── installer.py    External tool dependency installer
+└── data/               Package data
 ```
 
 ---
 
 ## 📦 Dependencies
 
-<table>
-<tr><td>
-
 | Package | Purpose |
 |---------|---------|
-| `httpx` | Async HTTP client with HTTP/2 |
 | `click` | CLI framework |
 | `rich` | Terminal output & progress |
+| `httpx` | Async HTTP client with HTTP/2 |
 | `pydantic` | Data validation |
-
-</td><td>
-
-| Package | Purpose |
-|---------|---------|
 | `pydantic-settings` | Env-based config |
-| `tenacity` | Retry with backoff |
 | `pyyaml` | Config parsing |
 | `jinja2` | Report templates |
-
-</td><td>
-
-| Package | Purpose |
-|---------|---------|
-| `networkx` | CVE chain graph *(optional)* |
-| `h2` | HTTP/2 smuggling *(optional)* |
-| `websockets` | WebSocket security testing *(optional)* |
-
-</td></tr>
-</table>
+| `websockets` | WebSocket security testing |
+| **`cryptography`** `[crypto]` | Ed25519 scope signing *(optional)* |
 
 ---
 

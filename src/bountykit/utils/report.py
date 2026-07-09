@@ -5,6 +5,7 @@ CVE data, and exploit search results.
 """
 
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional, Any
@@ -393,6 +394,3 @@ def _escape_html(text: str) -> str:
         .replace('"', "&quot;")
         .replace("'", "&#x27;")
     )
-
-
-import os
