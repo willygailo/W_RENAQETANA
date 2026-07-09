@@ -16,8 +16,14 @@ class LegalConfig(BaseModel):
     """Legal compliance configuration."""
     require_auth: bool = True
     scope_file: Optional[str] = None
-    rate_limit: int = 10  # requests per second
+    scope_public_key: Optional[str] = None
+    scope_private_key: Optional[str] = None
+    rate_limit: int = 10
     audit_log: bool = True
+    audit_log_dir: Optional[str] = None
+    safe_mode: str = "active"
+    default_bounty_platform: Optional[str] = None
+    report_output_dir: str = "./reports"
 
     def gate_check(self, target: str) -> bool:
         """Verify target is authorized for testing."""
@@ -25,9 +31,11 @@ class LegalConfig(BaseModel):
             return True
 
         if self.scope_file and os.path.exists(self.scope_file):
-            with open(self.scope_file) as f:
-                in_scope = [line.strip() for line in f if line.strip()]
-            return any(target in entry or entry in target for entry in in_scope)
+            from bountykit.utils.legal import ScopeFile, check_authorization
+            scope = ScopeFile.load(self.scope_file)
+            ok, _ = scope.allows(target)
+            if ok:
+                return True
 
         if self.audit_log:
             self._log_check(target)

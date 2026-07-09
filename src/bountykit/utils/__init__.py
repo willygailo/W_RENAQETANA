@@ -2,7 +2,7 @@
 
 from bountykit.utils.logger import setup_logger, log_findings, log_recon
 from bountykit.utils.validator import validate_target, validate_url, validate_severity
-from bountykit.utils.legal import check_authorization, validate_scope, DISCLAIMER
+from bountykit.utils.legal import check_authorization, DISCLAIMER, ScopeFile, AuditLog
 from bountykit.utils.installer import run_setup
 
 __all__ = [
@@ -13,7 +13,8 @@ __all__ = [
     "validate_url",
     "validate_severity",
     "check_authorization",
-    "validate_scope",
+    "ScopeFile",
+    "AuditLog",
     "DISCLAIMER",
     "run_setup",
 ]

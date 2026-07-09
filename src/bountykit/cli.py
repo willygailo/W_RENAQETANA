@@ -1036,12 +1036,18 @@ def setup():
     run_setup()
 
 
-@main.command()
+@main.group()
+def legal():
+    """Legal compliance, scope management, and audit tools."""
+    pass
+
+
+@legal.command("authorize")
 @click.option("--target", "-t", required=True, help="Target to verify authorization for")
 @click.option("--scope", "-s", default=None, help="Path to scope file")
 @click.option("--output", "-o", default=None, type=click.Path(), help="Save authorization record to file")
 @click.pass_context
-def legal(ctx, target, scope, output):
+def legal_authorize(ctx, target, scope, output):
     """Check legal authorization for a target."""
     import json
     from datetime import datetime
@@ -1061,12 +1067,186 @@ def legal(ctx, target, scope, output):
         }
         out_path = Path(output)
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        # If output is a directory, write a default filename inside it
         if out_path.is_dir():
             out_path = out_path / "legal_authorization.json"
         with open(out_path, "w") as f:
             json.dump(record, f, indent=2)
         console.print(f"[dim]Authorization record saved → {out_path}[/dim]")
+
+
+@legal.command("scope")
+@click.option("--show", is_flag=True, help="Display current scope file")
+@click.option("--verify", is_flag=True, help="Verify scope file signature")
+@click.option("--generate-keys", is_flag=True, help="Generate Ed25519 keypair for signing")
+@click.option("--file", "-f", default=None, help="Path to scope file")
+@click.pass_context
+def legal_scope(ctx, show, verify, generate_keys, file):
+    """Manage and verify authorization scope files."""
+    from pathlib import Path
+    from bountykit.utils.legal import ScopeFile, verify_scope, save_keypair
+    from bountykit.config import DEFAULT_CONFIG_DIR
+
+    scope_path = Path(file) if file else DEFAULT_CONFIG_DIR / "scope.yaml"
+
+    if generate_keys:
+        priv = DEFAULT_CONFIG_DIR / "scope_private.key"
+        pub = DEFAULT_CONFIG_DIR / "scope_public.key"
+        save_keypair(priv, pub)
+        return
+
+    if verify:
+        pub_path = DEFAULT_CONFIG_DIR / "scope_public.key"
+        ok, msg = verify_scope(scope_path, pub_path if pub_path.exists() else None)
+        status = "[green]✓" if ok else "[red]✗"
+        console.print(f"{status} {msg}[/]")
+        return
+
+    if show:
+        if not scope_path.exists():
+            console.print(f"[yellow]No scope file found at {scope_path}[/yellow]")
+            return
+        scope = ScopeFile.load(scope_path)
+        console.print(scope.to_yaml())
+        return
+
+    console.print("Use --show, --verify, or --generate-keys to interact with scope files.")
+
+
+@legal.command("audit")
+@click.option("--verify", is_flag=True, help="Verify integrity of audit log chain")
+@click.option("--target", "-t", default=None, help="Filter entries by target")
+@click.option("--file", "-f", default=None, help="Specific audit log file to inspect")
+@click.option("--days", "-d", default=7, type=int, help="Show entries from last N days")
+@click.pass_context
+def legal_audit(ctx, verify, target, file, days):
+    """View and verify tamper-proof audit trail."""
+    import json
+    from datetime import datetime, timezone, timedelta
+    from pathlib import Path
+    from bountykit.utils.legal import AuditLog
+    from bountykit.config import DEFAULT_CONFIG_DIR
+
+    audit = AuditLog()
+
+    if verify:
+        if file:
+            results = audit.verify_chain(file)
+        else:
+            log_dir = audit.log_dir
+            results = []
+            for log_file in sorted(log_dir.glob("*.jsonl")):
+                results.extend(audit.verify_chain(log_file))
+
+        passed = sum(1 for r in results if r.get("status") == "ok")
+        failed = sum(1 for r in results if "error" in r)
+        console.print(f"[green]✓ {passed} entries verified[/green]")
+        if failed:
+            console.print(f"[red]✗ {failed} chain breaks or tampered entries[/red]")
+            for r in results:
+                if "error" in r:
+                    console.print(f"  Line {r.get('line')}: {r['error']}")
+        return
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    entries = []
+    log_dir = audit.log_dir
+
+    for log_file in sorted(log_dir.glob("*.jsonl")):
+        with open(log_file) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                entry = json.loads(line)
+                ts = entry.get("timestamp", "")
+                try:
+                    entry_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    if entry_dt < cutoff:
+                        continue
+                except ValueError:
+                    pass
+                if target and target not in entry.get("target", ""):
+                    continue
+                entries.append(entry)
+
+    if not entries:
+        console.print(f"[yellow]No audit entries found in the last {days} days.[/yellow]")
+        return
+
+    from rich.table import Table
+    table = Table(title=f"Audit Trail (last {days} days)", show_lines=True)
+    table.add_column("Timestamp", style="dim", width=24)
+    table.add_column("Action", style="cyan", width=18)
+    table.add_column("Target", style="white", width=30)
+    table.add_column("Status", width=10)
+    for e in reversed(entries[-50:]):
+        color = {"ok": "green", "denied": "red", "error": "red"}.get(e.get("status", ""), "white")
+        table.add_row(
+            e.get("timestamp", "")[:19],
+            e.get("action", ""),
+            e.get("target", ""),
+            f"[{color}]{e.get('status', '')}[/{color}]",
+        )
+    console.print(table)
+    console.print(f"[dim]Showing {min(len(entries), 50)} of {len(entries)} entries[/dim]")
+
+
+@legal.command("platform")
+@click.option("--platform", "-p", required=True, type=click.Choice(["hackerone", "bugcrowd"]),
+              help="Bug bounty platform")
+@click.option("--program", "-P", required=True, help="Program handle or code")
+@click.option("--username", "-u", required=True, help="Your platform username")
+@click.pass_context
+def legal_platform(ctx, platform, program, username):
+    """Fetch scope from bug bounty platform APIs."""
+    from pathlib import Path
+    from bountykit.utils.legal import fetch_hackerone_program, fetch_bugcrowd_program
+    from bountykit.config import DEFAULT_CONFIG_DIR
+
+    console.print(f"[bold]Fetching {platform} program: {program}[/bold]")
+
+    if platform == "hackerone":
+        scope = fetch_hackerone_program(program, username)
+    else:
+        scope = fetch_bugcrowd_program(program, username)
+
+    if scope:
+        out_path = DEFAULT_CONFIG_DIR / f"scope_{program}.yaml"
+        scope.save(out_path)
+        console.print(f"[green]✓ Scope saved → {out_path}[/green]")
+        console.print("[yellow]⚠ Verify and sign this scope file before using.[/yellow]")
+    else:
+        console.print("[red]Could not fetch scope. Check API tokens and program name.[/red]")
+
+
+@legal.command("report")
+@click.option("--target", "-t", required=True, help="Target for compliance report")
+@click.option("--output", "-o", default=None, help="Output file path")
+@click.pass_context
+def legal_report(ctx, target, output):
+    """Generate a legal compliance report from audit trail."""
+    from pathlib import Path
+    from bountykit.utils.legal import ScopeFile, AuditLog, generate_compliance_report
+    from bountykit.config import DEFAULT_CONFIG_DIR
+
+    scope_path = DEFAULT_CONFIG_DIR / "scope.yaml"
+    scope = ScopeFile.load(scope_path) if scope_path.exists() else ScopeFile(
+        target=target, valid_from="", valid_until=""
+    )
+
+    audit = AuditLog()
+    entries = audit.get_target_history(target)
+
+    out_path = output or str(DEFAULT_CONFIG_DIR / f"compliance_{target}.yaml")
+    report = generate_compliance_report(target, scope, entries, output_path=out_path)
+    console.print(f"[green]✓ Compliance report → {out_path}[/green]")
+
+
+@legal.command("techniques")
+def legal_techniques():
+    """Show technique classification tree."""
+    from bountykit.utils.legal import get_technique_tree
+    console.print(get_technique_tree())
 
 
 # =============================================================================
