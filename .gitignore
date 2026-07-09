@@ -26,11 +26,13 @@ build/
 .DS_Store
 Thumbs.db
 
-# BountyKit output
-output/
+# Results & outputs
 results/
 results/recon/
+output/
 reports/
+# Assets (lock to committed version)
+assets/ > assets/*
 
 # Reference docs (not for repo)
 ADVANCED_BUGBOUNTY_CVE.md

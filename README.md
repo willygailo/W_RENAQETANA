@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/willygailo/bountykit/main/assets/banner.png" alt="BountyKit" width="100%">
+<img src="./assets/banner.png" alt="BountyKit" width="100%">
 
 <br>
 
